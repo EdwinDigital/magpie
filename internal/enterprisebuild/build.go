@@ -299,6 +299,10 @@ func snapshot(ctx context.Context, source, out string, allowDirty bool) (string,
 		if err != nil {
 			return "", false, err
 		}
+		// Git's archive starts with a global PAX record containing the commit ID.
+		if h.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
 		if !filepath.IsLocal(h.Name) {
 			return "", false, fmt.Errorf("unsafe archive path")
 		}

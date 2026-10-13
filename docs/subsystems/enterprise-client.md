@@ -266,6 +266,10 @@ only before signing. The standard enterprise path uses its own `.icns`, not the
 original Assets.car. Adaptive icons, installers/MDM, portal frontend, corporate SSO
 and remotely locked client policy remain integrations, not inferred capabilities.
 
+Clean-source snapshots accept Git's global PAX archive metadata without creating
+a file for it. Tracked source links and unsafe archive paths remain rejected;
+the metadata exception does not allow following files outside the source tree.
+
 Small PNG-backed macOS icon representations use Retina `ic11`/`ic12` slots,
 not `icp4`/`icp5`/`icp6`, which the native decoder can interpret as legacy pixel
 data and show as colored corruption. The exported 16/32/64-pixel PNGs remain
