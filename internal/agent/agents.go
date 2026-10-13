@@ -68,7 +68,11 @@ func Clients() []*Agent {
 func All() []*Agent {
 	home, cfg := homes()
 	own := builtins(home, cfg)
-	return append(own, pluggedAgents(home, own, nil)...)
+	all := append(own, pluggedAgents(home, own, nil)...)
+	for _, a := range all {
+		isolateWiring(a)
+	}
+	return all
 }
 
 func homes() (home, cfg string) {
@@ -139,7 +143,15 @@ func builtins(home, cfg string) []*Agent {
 		snow(home),
 		alma(),
 		cindy(),
-	}, append(ompProfiles(home), wslAgents()...)...)
+	}, discoveredProfiles(home)...)
+}
+
+func discoveredProfiles(home string) []*Agent {
+	var out []*Agent
+	if settings.AgentDiscoveryAllowed("omp") {
+		out = ompProfiles(home)
+	}
+	return append(out, wslAgents()...)
 }
 
 // ---- accessors -------------------------------------------------------------
@@ -368,7 +380,7 @@ func magpieProviderJSONAt(shape, catalog, gw string) any {
 			e["variants"] = openCodeVariants(m.Efforts)
 			ms[m.ID] = e
 		}
-		return map[string]any{"npm": "@ai-sdk/openai-compatible", "name": "magpie",
+		return map[string]any{"npm": "@ai-sdk/openai-compatible", "name": wiringDisplayName(),
 			"options": map[string]any{"baseURL": gw + "/v1", "apiKey": keyAt(gw)}, "models": ms}
 	case "crush":
 		var ms []map[string]any
@@ -391,7 +403,7 @@ func magpieProviderJSONAt(shape, catalog, gw string) any {
 		if ms == nil {
 			ms = []map[string]any{}
 		}
-		return map[string]any{"type": "openai", "name": "magpie", "base_url": gw + "/v1", "api_key": keyAt(gw), "models": ms}
+		return map[string]any{"type": "openai", "name": wiringDisplayName(), "base_url": gw + "/v1", "api_key": keyAt(gw), "models": ms}
 	case "pi":
 		var ms []map[string]any
 		for _, m := range models {
@@ -407,7 +419,7 @@ func magpieProviderJSONAt(shape, catalog, gw string) any {
 		// Without it a turn of Pi's on Chat or Messages reached the gateway
 		// with no session: its usage had none and "Record gateway
 		// conversations" kept none of it (akic404 on Discord).
-		return map[string]any{"name": "magpie", "baseUrl": gw + "/v1", "api": "openai-completions", "apiKey": keyAt(gw),
+		return map[string]any{"name": wiringDisplayName(), "baseUrl": gw + "/v1", "api": "openai-completions", "apiKey": keyAt(gw),
 			"compat": map[string]any{"sendSessionAffinityHeaders": true}, "models": ms}
 	}
 	return nil

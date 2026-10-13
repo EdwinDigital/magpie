@@ -77,7 +77,7 @@ var copilotWSL struct {
 // CLI keeps it when the distro has no keyring to put it in (WSL has none
 // unless one is set up): magpie can't reach a distro's keyring.
 func copilotCLILogin() (copilotApp, bool) {
-	if settings.AccountDiscoveryOff() {
+	if settings.AccountDiscoveryOff() || !localDiscoveryAllowed("copilot", "copilot") {
 		return copilotApp{}, false
 	}
 	if app, ok := copilotCLILoginIn(copilotCLIHome(), copilotCLISecret); ok {

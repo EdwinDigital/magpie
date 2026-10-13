@@ -103,7 +103,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.ok(saved.some((b) => b.redactPersonal === true), JSON.stringify(saved));
       // the switch here says so, and turns it off again
       await page.waitForFunction((on) => [...document.querySelectorAll("#redactList .row")].some((r) => r.querySelector(".name")?.textContent === on.hide && r.querySelector(".opt.on")?.textContent === on.on), w);
-      await row(w.hide).getByRole("button", { name: w.off, exact: true }).click();
+      const off = row(w.hide).getByRole("button", { name: w.off, exact: true });
+      const underFoot = await off.evaluate(b => b.getBoundingClientRect().bottom - document.querySelector("footer.foot").getBoundingClientRect().top + 12);
+      if (underFoot > 0) {
+        await page.mouse.move(450, 300);
+        await page.mouse.wheel(0, Math.ceil(underFoot));
+        await page.waitForFunction(({ label, off }) => {
+          const r = [...document.querySelectorAll("#redactList .row")].find(r => r.querySelector(".name")?.textContent === label);
+          const b = [...r.querySelectorAll("button")].find(b => b.textContent === off);
+          return b.getBoundingClientRect().bottom < document.querySelector("footer.foot").getBoundingClientRect().top;
+        }, { label: w.hide, off: w.off });
+      }
+      await off.click();
       await page.waitForFunction(() => localStorage.getItem("magpie.maskEmails") === "0");
       assert.equal(await page.evaluate(() => scrollY), y0, "a click never scrolls");
       // no coloured left border on the new row

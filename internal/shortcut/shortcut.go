@@ -18,10 +18,16 @@ import (
 	"strings"
 
 	"github.com/yetone/magpie/internal/appdir"
+	"github.com/yetone/magpie/internal/distribution"
 )
 
 // Name is what the shortcut is called, and what Windows search finds.
-const Name = "Magpie"
+var Name = func() string {
+	if distribution.ID() != "" {
+		return distribution.ExecutableName()
+	}
+	return "Magpie"
+}()
 
 // StateName is the file in magpie's folder recording that the shortcut was
 // made, and for which exe.

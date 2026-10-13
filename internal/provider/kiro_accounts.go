@@ -46,6 +46,9 @@ type kiroLogin struct {
 // kiroOwnUser is who kiro-cli's or the IDE's sign-in is, "" for none; until
 // Kiro has said, it is named for what it is.
 func kiroOwnUser() string {
+	if !localDiscoveryAllowed("kiro") {
+		return ""
+	}
 	if _, ok := readKiroAt("", ""); !ok {
 		return ""
 	}

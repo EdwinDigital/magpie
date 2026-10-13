@@ -64,7 +64,7 @@ var cursorStatus = &cliIdentity{name: "cursor", exe: func() string { return Curs
 
 // cursorIdentity is who Cursor's CLI says is signed in; see cliIdentity.
 func cursorIdentity() (user, plan string, ok bool) {
-	if settings.AccountDiscoveryOff() {
+	if settings.AccountDiscoveryOff() || !localDiscoveryAllowed("cursor", "cursor") {
 		return "", "", false
 	}
 	return cursorStatus.get()

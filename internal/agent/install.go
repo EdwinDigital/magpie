@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/proc"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // InstallCmd is one way to install an agent's CLI.
@@ -175,8 +176,12 @@ func npmIn(dirs []string, goos string) bool {
 // Installs is every agent magpie knows a command for that isn't on this
 // machine, in the Agents page's order.
 func Installs() []Install {
+	all := slices.DeleteFunc(All(), func(a *Agent) bool { return !settings.AgentDiscoveryAllowed(a.ID) })
+	if len(all) == 0 {
+		return []Install{}
+	}
 	node := nodeHere()
-	out := installsOf(All(), runtime.GOOS, node)
+	out := installsOf(all, runtime.GOOS, node)
 	if node && adminNPM {
 		npmNeedsAdmin(out, npmGlobalPrefix())
 	}
@@ -233,6 +238,9 @@ func npmGlobalPrefix() string {
 func installsOf(all []*Agent, goos string, node bool) []Install {
 	out := []Install{}
 	for _, a := range all {
+		if !settings.AgentDiscoveryAllowed(a.ID) {
+			continue
+		}
 		missing := a.CLIMissing()
 		if a.WSL != "" || a.Detected() && !missing {
 			continue

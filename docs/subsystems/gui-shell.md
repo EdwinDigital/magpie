@@ -7,6 +7,10 @@ with no binding generator and no bundler. `magpie web` serves the same page
 to a browser for a machine with no desktop. Package `internal/gui` hosts all
 three.
 
+Enterprise branding, Settings' enterprise editor, boot defaults, cross-window
+refresh and closed GUI modules follow the [enterprise client contract](enterprise-client.md).
+Runtime branding does not edit signed installation metadata.
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |

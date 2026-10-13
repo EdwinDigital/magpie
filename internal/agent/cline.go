@@ -393,7 +393,7 @@ func clineModelsAt(model, v1 string) map[string]any {
 		ms[m.ID] = e
 	}
 	return map[string]any{
-		"provider": map[string]any{"name": "magpie", "baseUrl": v1, "defaultModelId": model},
+		"provider": map[string]any{"name": wiringDisplayName(), "baseUrl": v1, "defaultModelId": model},
 		"models":   ms,
 	}
 }

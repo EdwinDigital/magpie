@@ -34,7 +34,7 @@ import (
 
 // mcodeProvider is magpie's provider id in MiniMax Code, and mcodeEntry its
 // entry in config.yaml.
-const (
+var (
 	mcodeProvider = "custom_provider:" + magpieID
 	mcodeEntry    = "custom_provider." + magpieID
 )

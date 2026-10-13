@@ -42,6 +42,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/yetone/magpie/internal/distribution"
 )
 
 const (
@@ -176,13 +178,13 @@ var sharedFolder = func(dir string) bool {
 // with no home folder.
 func installed() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); rooted(x) {
-		return filepath.Join(x, "magpie")
+		return enterpriseDir(filepath.Join(x, "magpie"))
 	}
 	h, err := Home()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(h, ".config", "magpie")
+	return enterpriseDir(filepath.Join(h, ".config", "magpie"))
 }
 
 // Beside is the folder a portable magpie run from exe keeps its data folder
@@ -225,12 +227,12 @@ func absolute(p string) string {
 // rest of its own state in.
 func Config() string {
 	if p := Portable(); p != "" {
-		return p
+		return enterpriseDir(p)
 	}
 	if x := os.Getenv("XDG_CONFIG_HOME"); rooted(x) {
-		return filepath.Join(x, "magpie")
+		return enterpriseDir(filepath.Join(x, "magpie"))
 	}
-	return filepath.Join(mustHome(), ".config", "magpie")
+	return enterpriseDir(filepath.Join(mustHome(), ".config", "magpie"))
 }
 
 // Redirected is the folder magpie keeps its files in when it is opened
@@ -247,7 +249,7 @@ func Redirected() string {
 	if err != nil {
 		return ""
 	}
-	if def := filepath.Join(h, ".config", "magpie"); filepath.Clean(def) != filepath.Clean(Config()) {
+	if def := enterpriseDir(filepath.Join(h, ".config", "magpie")); filepath.Clean(def) != filepath.Clean(Config()) {
 		return def
 	}
 	return ""
@@ -257,12 +259,12 @@ func Redirected() string {
 // catalog, exchange rates, market lists).
 func Cache() string {
 	if p := Portable(); p != "" {
-		return filepath.Join(p, "cache")
+		return filepath.Join(enterpriseDir(p), "cache")
 	}
 	if x := os.Getenv("XDG_CACHE_HOME"); rooted(x) {
-		return filepath.Join(x, "magpie")
+		return enterpriseDir(filepath.Join(x, "magpie"))
 	}
-	return filepath.Join(mustHome(), ".cache", "magpie")
+	return enterpriseDir(filepath.Join(mustHome(), ".cache", "magpie"))
 }
 
 // WebView is the folder the Windows webview (WebView2) keeps its profile
@@ -272,7 +274,7 @@ func Cache() string {
 // portable magpie leaves no magpie.exe folder in the user's AppData (#508).
 func WebView() string {
 	if p := Portable(); p != "" {
-		return filepath.Join(p, "webview2")
+		return filepath.Join(enterpriseDir(p), "webview2")
 	}
 	return ""
 }
@@ -282,11 +284,42 @@ func WebView() string {
 // which a few caches have always used; portable, it is Cache.
 func SystemCache() (string, error) {
 	if p := Portable(); p != "" {
-		return filepath.Join(p, "cache"), nil
+		return filepath.Join(enterpriseDir(p), "cache"), nil
 	}
 	d, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(d, "magpie"), nil
+	return enterpriseDir(filepath.Join(d, "magpie")), nil
+}
+
+func enterpriseDir(base string) string {
+	return distributionDir(base, distribution.Current())
+}
+
+// ConfigForDistribution is for operator tools provisioning an approved
+// profile; a running client always uses its immutable package identity.
+func ConfigForDistribution(p distribution.Profile) string {
+	if distribution.ID() != "" {
+		return Config()
+	}
+	return distributionDir(Config(), p)
+}
+
+// Installation namespaces follow the package's CLI name, never its mutable
+// display name. Portable data is namespaced too, even in a shared folder.
+func distributionDir(base string, p distribution.Profile) string {
+	if p.DistributionID == "" {
+		return base
+	}
+	name := p.Identity.ArtifactSlug
+	if filepath.Base(base) == "magpie" {
+		base = filepath.Join(filepath.Dir(base), name)
+	} else {
+		base = filepath.Join(base, name)
+	}
+	if p.DistributionID != name {
+		base = filepath.Join(base, "enterprises", p.DistributionID)
+	}
+	return base
 }

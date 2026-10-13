@@ -69,21 +69,23 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           let all = await rows(page);
           assert(all.some((r) => r.cur && r.text.includes("gpt-6.1-sol")), "listed under All, ticked");
           await item("OpenAI").click();
-          await page.waitForTimeout(400);
+          // The outgoing animation commits the filtered list asynchronously.
+          // Wait for that result, not an IPC-dependent wall-clock delay.
+          await page.waitForFunction(() => document.querySelector('#pickerRail .rail-item[data-group="OpenAI"]')?.classList.contains("on") && [...document.querySelectorAll("#list li:not(.group)")].some(r => r.textContent.includes("gpt-6-astra")) && ![...document.querySelectorAll("#list li:not(.group)")].some(r => r.textContent.includes("Kimi K3")));
           all = await rows(page);
           const cur = all.filter((r) => r.text.includes("gpt-6.1-sol"));
           assert.equal(cur.length, 1, `gpt-6.1-sol under OpenAI once: ${JSON.stringify(all)}`);
           assert(cur[0].cur, "ticked as the current model");
-          assert(all.some((r) => r.text.includes("gpt-6-astra")) && !all.some((r) => r.text.includes("Kimi K3")), "the rest are OpenAI's");
+          assert(all.some((r) => r.text.includes("gpt-6-astra")) && !all.some((r) => r.text.includes("Kimi K3")), "the rest are OpenAI's: " + JSON.stringify(all));
           await item("Kimi").click();
-          await page.waitForTimeout(400);
+          await page.waitForFunction(() => [...document.querySelectorAll("#list li:not(.group)")].some(r => r.textContent.includes("Kimi K3")) && ![...document.querySelectorAll("#list li:not(.group)")].some(r => r.textContent.includes("gpt-6.1-sol")));
           assert(!(await rows(page)).some((r) => r.text.includes("gpt-6.1-sol")), "not under another provider");
 
           // the current model is Kimi's only one: Kimi keeps its icon, in its place
           await open("kimi/k3");
           assert.deepEqual(await rail(page), ["All models", "Favorites", "Routing groups", "OpenAI", "Kimi", "DeepSeek"]);
           await item("Kimi").click();
-          await page.waitForTimeout(400);
+          await page.waitForFunction(() => [...document.querySelectorAll("#list li.cur")].some(r => r.textContent.includes("Kimi K3")));
           assert((await rows(page)).some((r) => r.cur && r.text.includes("Kimi K3")), "Kimi K3 under Kimi");
           assert.deepEqual(errors, [], "page runtime errors");
         } finally {

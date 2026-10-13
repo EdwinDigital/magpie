@@ -103,7 +103,7 @@ func codexEfforts(ms []catalog.Model, model string) []Option {
 func codexIn(at place) *Agent {
 	dir := at.codexHome()
 	path := filepath.Join(dir, "config.toml")
-	catalogPath := filepath.Join(dir, "magpie-models.json")
+	catalogPath := filepath.Join(dir, magpieID+"-models.json")
 	get := func(k string) string { v, _ := edit.GetTOMLTop(path, k); return v }
 	// this machine's Codex reaches the gateway at the address its config
 	// gives, when that is magpie's on another host: the Codex app on
@@ -216,7 +216,7 @@ func codexIn(at place) *Agent {
 	// magpie as a provider Codex can name; its threads started on magpie do
 	putProvider := func() error {
 		return edit.SetTOMLTable(path, "model_providers."+magpieID,
-			edit.KV{Path: "name", Value: "magpie"},
+			edit.KV{Path: "name", Value: wiringDisplayName()},
 			edit.KV{Path: "base_url", Value: at.v1()},
 			edit.KV{Path: "wire_api", Value: "responses"},
 			edit.KV{Path: "experimental_bearer_token", Value: at.gwKey()},
@@ -280,7 +280,7 @@ func codexIn(at place) *Agent {
 	// official OpenAI mirror: name = "OpenAI", requires_openai_auth = true, and no
 	// base_url (or magpie's codexURL while failing over).
 	isCCSwitchMirror := func(p string) bool {
-		if p == "" || p == "openai" || p == magpieID {
+		if p == "" || p == "openai" || wiringNamespace(p) {
 			return false
 		}
 		t, err := edit.GetTOMLTable(path, "model_providers."+p)
@@ -310,7 +310,7 @@ func codexIn(at place) *Agent {
 		out := map[string]string{}
 		for _, n := range names {
 			id, ok := strings.CutPrefix(n, "model_providers.")
-			if !ok || !ccSwitchProvider.MatchString(id) || named[id] || isCCSwitchMirror(id) {
+			if !ok || wiringNamespace(id) || !ccSwitchProvider.MatchString(id) || named[id] || isCCSwitchMirror(id) {
 				continue
 			}
 			if t, _ := edit.GetTOMLTable(path, n); t["base_url"] != "" {
@@ -341,7 +341,7 @@ func codexIn(at place) *Agent {
 			return nil
 		}
 		for _, id := range sessions.CodexThreadProviders(dir) {
-			if _, ok := cfg.Providers[id]; ok || id == magpieID || codexBuiltinProvider[id] {
+			if _, ok := cfg.Providers[id]; ok || wiringNamespace(id) || codexBuiltinProvider[id] {
 				continue
 			}
 			if err := edit.SetTOMLTable(path, "model_providers."+id,
@@ -783,6 +783,45 @@ func codexIn(at place) *Agent {
 
 	a := atomic(&Agent{
 		ID: "codex", Name: "Codex", Icon: "codex-color", Bin: "codex", Dir: dir, Path: path,
+		WiringOwner: func() string {
+			if p := get("model_provider"); wiringNamespace(p) {
+				if p == "magpie" {
+					t, _ := edit.GetTOMLTable(path, "model_providers.magpie")
+					if ownedLegacyWiring("codex", t["base_url"]) {
+						return magpieID
+					}
+				}
+				return p
+			}
+			base := get("openai_base_url")
+			if base == "" {
+				return ""
+			}
+			if t, _ := edit.GetTOMLTable(path, "model_providers."+magpieID); ourKey(t["experimental_bearer_token"]) && endpointOwner(base, t["base_url"]) == magpieID {
+				return magpieID
+			}
+			tables, _ := edit.TOMLTables(path)
+			for _, table := range tables {
+				id, ok := strings.CutPrefix(table, "model_providers.")
+				if !ok || id == magpieID || !wiringNamespace(id) {
+					continue
+				}
+				t, _ := edit.GetTOMLTable(path, table)
+				if endpointOwner(base, t["base_url"]) == magpieID {
+					if id == "magpie" && ownedLegacyWiring("codex", base) {
+						return magpieID
+					}
+					return id
+				}
+			}
+			if ownedLegacyWiring("codex", base) {
+				return magpieID
+			}
+			if magpieID == "magpie" {
+				return ""
+			}
+			return endpointOwner(base, at.codexURL())
+		},
 		UA: []string{"codex"},
 		// Codex as it was before magpie: its default puts it back as
 		// installed, OpenAI and its default model, where this brings back

@@ -51,6 +51,7 @@ function serve(lang, lib, calls) {
       return json(view({ changed: ["claude"], problems: [] }));
     }
     if (url.pathname === "/api/library/servers/save") {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
       const { server } = req.postDataJSON();
       lib.servers.push(server);
       return json(view({ changed: ["claude"], problems: [] }));
@@ -119,8 +120,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const ed = page.locator(".lib-editor");
         await ed.locator('input[placeholder="e.g. github"], input[placeholder="例如 github"]').fill("fetch");
         await ed.locator('input[placeholder="npx -y @modelcontextprotocol/server-github"]').fill("uvx mcp-server-fetch");
+        const saved = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/library/servers/save" && r.request().method() === "POST");
         await ed.getByRole("button", { name: words[lang].add, exact: true }).click();
-        await card("mcp", "fetch").locator(".mk-have").waitFor({ timeout: 2000 });
+        await saved;
+        await card("mcp", "fetch").locator(".mk-have").waitFor();
       });
 
       await t.test("a skill removed is no longer marked added", async () => {

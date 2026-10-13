@@ -41,14 +41,16 @@ import (
 	"github.com/yetone/magpie/internal/desktopdir"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // desktopProfileID is magpie's profile in Desktop's configLibrary: a
 // UUID like the ones Desktop makes, its last part "magpie" in hex.
-const desktopProfileID = "00000000-0000-4000-8000-6d6167706965"
+var desktopProfileID = wiringProfileID(magpieID)
 
 // desktopPaths are the files and folders magpie writes for Claude Desktop.
 type desktopPaths struct {
+	profile             string
 	key                 string // the stash's keys end with it: "" or ".package"
 	dir, dir3p          string // Claude, Claude-3p
 	config, config3p    string // their claude_desktop_config.json
@@ -58,12 +60,22 @@ type desktopPaths struct {
 func desktopPathsOf(dir, dir3p string) desktopPaths {
 	lib := filepath.Join(dir3p, "configLibrary")
 	return desktopPaths{
-		dir: dir, dir3p: dir3p,
+		profile: desktopProfileID,
+		dir:     dir, dir3p: dir3p,
 		config:   filepath.Join(dir, "claude_desktop_config.json"),
 		config3p: filepath.Join(dir3p, "claude_desktop_config.json"),
 		library:  lib, meta: filepath.Join(lib, "_meta.json"), prof: filepath.Join(lib, desktopProfileID+".json"),
 	}
 }
+
+func (p desktopPaths) profileID() string {
+	if p.profile != "" {
+		return p.profile
+	}
+	return desktopProfileID
+}
+
+func (p desktopPaths) ownEntry(raw json.RawMessage) bool { return desktopEntryID(raw) == p.profileID() }
 
 // desktopDirs are Desktop's Claude and Claude-3p folders on goos: the ones
 // magpie writes deploymentMode and its profile into (desktopdir.Find).
@@ -99,13 +111,41 @@ func DesktopConfigs3p(home string) []string {
 	return out
 }
 
-func claudeDesktop(home string) *Agent {
+func claudeDesktop(home string, explicit ...bool) *Agent {
+	if len(explicit) == 0 && !settings.AgentDiscoveryAllowed("claude-desktop") {
+		return &Agent{ID: "claude-desktop", Name: "Claude Desktop", Icon: "claude-color", Aliases: []string{"claude-app"},
+			expand: func() *Agent { return claudeDesktop(home, true) }}
+	}
 	sets := desktopdir.Sets(desktopdir.OS, home, os.Getenv)
 	ps := desktopSets(desktopdir.OS, home, os.Getenv)
 	p := ps[0]
 	return &Agent{
 		ID: "claude-desktop", Name: "Claude Desktop", Icon: "claude-color", Aliases: []string{"claude-app"},
 		Dir: p.dir, Path: p.config,
+		WiringOwner: func() string {
+			for _, p := range ps {
+				mode, _ := edit.GetJSON(p.config, "deploymentMode")
+				if mode != "3p" {
+					continue
+				}
+				id, _ := edit.GetJSON(p.meta, "appliedId")
+				if id == desktopProfileID {
+					return magpieID
+				}
+				if id == publicDesktopProfileID {
+					legacyPath := filepath.Join(p.library, publicDesktopProfileID+".json")
+					base, _ := edit.GetJSON(legacyPath, "inferenceGatewayBaseUrl")
+					if ownedLegacyWiring("claude-desktop", base) {
+						return magpieID
+					}
+					return "magpie"
+				}
+				if id != "" && magpieID != "magpie" {
+					return "another gateway"
+				}
+			}
+			return ""
+		},
 		detect: func() bool {
 			// its own data (%APPDATA%\Claude on Windows, or the MSIX
 			// package's), the folder magpie writes or Claude-3p
@@ -154,13 +194,26 @@ func claudeDesktop(home string) *Agent {
 				}
 				desktopAdoptStash(ps)
 				for _, p := range ps {
+					if v != "" && magpieID != "magpie" {
+						legacy := p
+						legacy.profile, legacy.prof = publicDesktopProfileID, filepath.Join(p.library, publicDesktopProfileID+".json")
+						base, _ := edit.GetJSON(legacy.prof, "inferenceGatewayBaseUrl")
+						if id, _ := edit.GetJSON(p.meta, "appliedId"); id == publicDesktopProfileID && ownedLegacyWiring("claude-desktop", base) {
+							if err := desktopOff(legacy); err != nil {
+								return err
+							}
+						}
+					}
 					if err := on(p); err != nil {
 						return err
 					}
 				}
 				// its Code tab is Claude Code, told what Desktop's ids for
 				// magpie's models can do while that one runs on magpie
-				_ = claude(home).Sync()
+				cc := claude(home)
+				if cc.ForeignOwner() == "" {
+					_ = cc.Sync()
+				}
 				return nil
 			},
 			Options: func(map[string]string) []Option {
@@ -201,7 +254,7 @@ func desktopCheck(p desktopPaths) string {
 	if m != "3p" || m3 != "3p" {
 		return "Claude Desktop's deploymentMode (claude_desktop_config.json) is no longer 3p, so it signs in with Anthropic rather than using magpie"
 	}
-	if id, _ := edit.GetJSON(p.meta, "appliedId"); id != desktopProfileID {
+	if id, _ := edit.GetJSON(p.meta, "appliedId"); id != p.profileID() {
 		return "Claude Desktop uses another gateway configuration now (appliedId in configLibrary/_meta.json), not magpie's"
 	}
 	return wiringOff("Claude Desktop", p.prof, func(k string) (string, bool) { return edit.GetJSON(p.prof, k) },
@@ -240,7 +293,7 @@ func desktopTierFields(ps []desktopPaths) []Field {
 // desktopWired: _meta.json lists magpie's profile.
 func desktopWired(p desktopPaths) bool {
 	entries, _, err := desktopEntries(p.meta)
-	return err == nil && slices.ContainsFunc(entries, desktopOurs)
+	return err == nil && slices.ContainsFunc(entries, p.ownEntry)
 }
 
 // desktopWiredAny: any set of Desktop's folders is on magpie.
@@ -347,7 +400,7 @@ func desktopOn(p desktopPaths) error {
 	if err != nil {
 		return err
 	}
-	wired := slices.ContainsFunc(entries, desktopOurs)
+	wired := slices.ContainsFunc(entries, p.ownEntry)
 	if !wired {
 		var made []string
 		for _, f := range []string{p.dir, p.config, p.dir3p, p.config3p, p.library, p.meta} {
@@ -393,13 +446,13 @@ func desktopOn(p desktopPaths) error {
 
 	// _meta.json: magpie's entry (where it was, if it was), applied
 	if !wired {
-		entry, _ := json.Marshal(map[string]string{"id": desktopProfileID, "name": "magpie"})
+		entry, _ := json.Marshal(map[string]string{"id": p.profileID(), "name": magpieID})
 		entries = append(entries, entry)
 		if err := edit.SetJSON(p.meta, edit.KV{Path: "entries", Value: entries}); err != nil {
 			return err
 		}
 	}
-	if err := edit.SetJSON(p.meta, edit.KV{Path: "appliedId", Value: desktopProfileID}); err != nil {
+	if err := edit.SetJSON(p.meta, edit.KV{Path: "appliedId", Value: p.profileID()}); err != nil {
 		return err
 	}
 
@@ -428,7 +481,7 @@ func desktopOff(p desktopPaths) error {
 	if m := unstash(desktopMade + k); m != "" {
 		made = strings.Split(m, "\n")
 	}
-	if !stashed && !slices.ContainsFunc(entries, desktopOurs) {
+	if !stashed && !slices.ContainsFunc(entries, p.ownEntry) {
 		return nil
 	}
 
@@ -446,8 +499,8 @@ func desktopOff(p desktopPaths) error {
 		}
 	}
 
-	if slices.ContainsFunc(entries, desktopOurs) {
-		entries = slices.DeleteFunc(entries, desktopOurs)
+	if slices.ContainsFunc(entries, p.ownEntry) {
+		entries = slices.DeleteFunc(entries, p.ownEntry)
 		if len(entries) == 0 && slices.Contains(made, p.meta) {
 			err = edit.DelJSON(p.meta, "entries")
 		} else {
@@ -460,11 +513,11 @@ func desktopOff(p desktopPaths) error {
 			return err
 		}
 	}
-	if id, _ := edit.GetJSON(p.meta, "appliedId"); id == desktopProfileID {
+	if id, _ := edit.GetJSON(p.meta, "appliedId"); id == p.profileID() {
 		// the profile applied before, if it is still there, else the first
 		// one left, else none
 		next := ""
-		if applied != "" && applied != desktopProfileID && slices.ContainsFunc(entries, func(e json.RawMessage) bool { return desktopEntryID(e) == applied }) {
+		if applied != "" && applied != p.profileID() && slices.ContainsFunc(entries, func(e json.RawMessage) bool { return desktopEntryID(e) == applied }) {
 			next = applied
 		} else if len(entries) > 0 {
 			next = desktopEntryID(entries[0])

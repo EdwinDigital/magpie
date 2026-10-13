@@ -50,7 +50,7 @@ func TestWebCompresses(t *testing.T) {
 		}
 		path := "/" + f
 		if f == "index.html" {
-			path, want = "/", versionedPage(want)
+			path, want = "/", enterpriseHTML(versionedPage(want))
 		}
 		rec := get(path, browser, "")
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Encoding") != "gzip" {

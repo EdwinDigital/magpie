@@ -70,6 +70,9 @@ var devinStatus = &cliIdentity{name: "devin", exe: func() string { return DevinE
 
 // devinIdentity is who Devin's CLI says is signed in; see cliIdentity.
 func devinIdentity() (user, plan string, ok bool) {
+	if !localDiscoveryAllowed("devin", "devin") {
+		return "", "", false
+	}
 	if settings.AccountDiscoveryOff() {
 		return "", "", false
 	}

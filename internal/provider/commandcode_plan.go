@@ -268,7 +268,7 @@ func cmdSaved(l savedLogin) (cmdAuth, bool) {
 
 // cmdLogins is every Command Code account signed in, the first in use first.
 func cmdLogins() []cmdLogin {
-	ownUser, own, hasOwn := cmdOwn()
+	ownUser, own, hasOwn := cmdOwnDiscovered()
 	if !hasOwn {
 		ownUser = ""
 	}
@@ -896,4 +896,12 @@ func cmdSignedIn(ctx context.Context, a cmdAuth) (who, plan string, err error) {
 		plan = p
 	}
 	return who, plan, nil
+}
+
+// cmdOwnDiscovered checks visibility before borrowing another application's login.
+func cmdOwnDiscovered() (string, cmdAuth, bool) {
+	if !localDiscoveryAllowed(CommandCodePlanID, "commandcode") {
+		return "", cmdAuth{}, false
+	}
+	return cmdOwn()
 }

@@ -128,6 +128,8 @@ func trayMenuLabels(lang, version, update string) trayLabels {
 		restart: trayText(lang, "Restart to Update"),
 		quit:    trayText(lang, "Quit magpie"),
 	}
+	l.open = strings.ReplaceAll(l.open, "magpie", brandName())
+	l.quit = strings.ReplaceAll(l.quit, "magpie", brandName())
 	if update != "" {
 		l.restart = trayText(lang, "Restart to Update to %s", update)
 	}

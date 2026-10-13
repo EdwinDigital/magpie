@@ -207,7 +207,10 @@ func vscodeKindAt(k vscodeKind, dir string) *Agent {
 	}
 	return atomic(&Agent{
 		ID: k.id, Name: k.name, Icon: "vscode", Aliases: k.aliases, Spelled: prefixed,
-		Bin: k.bin, Dir: dir, Path: path,
+		// Each named group is independent; another client's group is not an
+		// exclusive connection and must survive additions and synchronizations.
+		WiringOwner: func() string { return "" },
+		Bin:         k.bin, Dir: dir, Path: path,
 		UA: k.ua,
 		detect: func() bool {
 			if Taken(dir) {

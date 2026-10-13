@@ -291,10 +291,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await title.click();
       await unmarked.click();
       const all = await page.evaluate(() => t("All purposes"));
+      await menu.locator(".pm-item").filter({ has: page.locator(".pm-name", { hasText: all }) }).evaluate((e) => e.focus({ preventScroll: true }));
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const beforeAll = await page.locator("#view-routing").evaluate((e) => e.scrollTop);
-      await menu.locator(".pm-item").filter({ has: page.locator(".pm-name", { hasText: all }) }).focus();
       await page.keyboard.press("Enter");
       await waitRows(8);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await page.locator(".rt-req").count(), 8, "All purposes resets the whole union");
       assert.equal(await menu.count(), 0);
       assert.equal(await page.locator("#rtPurpose").getAttribute("aria-expanded"), "false");

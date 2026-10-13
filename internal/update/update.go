@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/appdir"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/source"
@@ -38,13 +39,10 @@ import (
 // Site is magpie's home; its /api/latest is the update feed.
 const Site = "https://usemagpie.ai"
 
-// Feed is where the newest release is described. MAGPIE_UPDATE_FEED points
-// it elsewhere, for testing an update against a local server.
+// Feed is the package's release channel. MAGPIE_UPDATE_FEED overrides only
+// public packages for testing; enterprise packages always keep their own feed.
 func Feed() string {
-	if f := os.Getenv("MAGPIE_UPDATE_FEED"); f != "" {
-		return f
-	}
-	return Site + "/api/latest"
+	return CurrentPolicy().FeedURL
 }
 
 // Release is one published version.
@@ -66,7 +64,7 @@ type Asset struct {
 // of magpie's requests take — Settings' Proxy, else the environment's, else
 // the system's (#294) — on a transport of its own, whatever the process has
 // done to http.DefaultTransport.
-var client = &http.Client{Timeout: 10 * time.Minute, Transport: proxied()}
+var client = &http.Client{Timeout: 10 * time.Minute, Transport: proxied(), CheckRedirect: enterpriseRedirect}
 
 func proxied() http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
@@ -80,8 +78,19 @@ func Latest(ctx context.Context) (*Release, error) { return LatestIn(ctx, "") }
 // LatestIn asks the feed for the newest release, its notes in lang (see
 // InLang): the app's language, which What's new follows.
 func LatestIn(ctx context.Context, lang string) (*Release, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", withLang(Feed(), lang), nil)
+	return latestInFor(ctx, lang, distribution.Current(), filepath.Join(appdir.Config(), "update-sequence"))
+}
+
+func latestInFor(ctx context.Context, lang string, profile distribution.Profile, sequencePath string) (*Release, error) {
+	feed := policyFor(profile).FeedURL
+	if feed == "" {
+		return nil, errors.New("this enterprise package uses manual updates")
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", withLang(feed, lang), nil)
 	if err != nil {
+		return nil, err
+	}
+	if err := enterpriseRequestAuthFor(req, profile); err != nil {
 		return nil, err
 	}
 	res, err := source.Do(client, req)
@@ -91,6 +100,13 @@ func LatestIn(ctx context.Context, lang string) (*Release, error) {
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
 		return nil, fmt.Errorf("update feed: %s", res.Status)
+	}
+	if profile.DistributionID != "" {
+		r, err := enterpriseReleaseFor(res.Body, profile, sequencePath)
+		if err == nil {
+			r.Notes = InLang(r.Notes, lang)
+		}
+		return r, err
 	}
 	var r Release
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
@@ -107,6 +123,9 @@ func LatestIn(ctx context.Context, lang string) (*Release, error) {
 // source ("dev", "0bcb2cc-dirty", git describe's "v0.1.0-3-g0bcb2cc");
 // only releases update themselves.
 func Released(v string) bool {
+	if distribution.ID() != "" && distribution.Current().Updates.Mode == "manual" {
+		return false
+	}
 	s := parse(v)
 	return s != nil && !describe.MatchString(s.pre) && !strings.Contains(s.pre, "dirty")
 }
@@ -196,11 +215,23 @@ func parse(v string) *semver {
 var GUI bool
 
 // AppAsset and BinaryAsset name the files this machine would install.
-func AppAsset() string { return "magpie-darwin-" + runtime.GOARCH + ".zip" }
+func AppAsset() string {
+	prefix := "magpie"
+	if distribution.ID() != "" {
+		prefix = distribution.Current().Identity.ArtifactSlug
+	}
+	return prefix + "-darwin-" + runtime.GOARCH + ".zip"
+}
 func BinaryAsset() string {
+	if distribution.ID() != "" && runtime.GOOS == "windows" {
+		return distribution.ExecutableName() + "-windows-" + runtime.GOARCH + ".exe"
+	}
 	name := "magpie-cli-" + runtime.GOOS + "-" + runtime.GOARCH
 	if GUI && runtime.GOOS != "darwin" {
 		name = "magpie-" + runtime.GOOS + "-" + runtime.GOARCH
+	}
+	if distribution.ID() != "" {
+		name = strings.Replace(name, "magpie", distribution.Current().Identity.ArtifactSlug, 1)
 	}
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -276,8 +307,12 @@ func Stage(ctx context.Context, rel *Release, bundle string) (string, error) {
 		return "", fmt.Errorf("unzip: %v: %s", err, b)
 	}
 	os.Remove(zip)
-	app := filepath.Join(out, "magpie.app")
+	app := filepath.Join(out, distribution.BundleName())
 	if err := sameSigner(ctx, bundle, app); err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	if err := enterpriseBundleIdentity(app); err != nil {
 		os.RemoveAll(dir)
 		return "", err
 	}
@@ -291,7 +326,7 @@ func sameSigner(ctx context.Context, bundle, app string) error {
 		return fmt.Errorf("the downloaded app's signature is broken: %s", strings.TrimSpace(string(b)))
 	}
 	want, got := team(ctx, bundle), team(ctx, app)
-	if want != got {
+	if want != got || distribution.ID() != "" && (want == "" || got == "") {
 		return fmt.Errorf("the downloaded app is signed by %q, not %q", got, want)
 	}
 	return nil
@@ -397,6 +432,10 @@ func StageBinary(ctx context.Context, rel *Release) (string, error) {
 		return "", err
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	if err := verifyEnterpriseBinary(ctx, tmp); err != nil {
 		os.Remove(tmp)
 		return "", err
 	}
@@ -640,9 +679,12 @@ func download(ctx context.Context, a Asset, path string) error {
 func fetch(ctx context.Context, a Asset, path string) error {
 	// through a mirror when one is given (mirror.go): the hash checked
 	// below is still the feed's
-	u := mirrored(mirrorOf(ctx), a.URL)
+	u := artifactURL(distribution.ID(), mirrorOf(ctx), a.URL)
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
+		return err
+	}
+	if err := enterpriseRequestAuth(req); err != nil {
 		return err
 	}
 	res, err := source.Do(client, req)

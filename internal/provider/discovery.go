@@ -24,6 +24,41 @@ import (
 	"github.com/yetone/magpie/internal/settings"
 )
 
+// Enterprise visibility limits local discovery, not stored keys or credentials
+// used by an explicitly configured gateway provider.
+func localDiscoveryAllowed(provider string, agents ...string) bool {
+	if !settings.ProviderDiscoveryAllowed("subscription:" + provider) {
+		return false
+	}
+	// Copilot is a fixed visible supplier. Reading its existing sign-in is
+	// independent of detecting or integrating its CLI/editor as an agent.
+	if provider == "copilot" || len(agents) == 0 {
+		return true
+	}
+	for _, id := range agents {
+		if settings.AgentDiscoveryAllowed(id) {
+			return true
+		}
+	}
+	return false
+}
+
+func automaticProviderAllowed(p Provider) bool {
+	id := "custom:" + p.ID
+	if p.Account != nil {
+		id = "subscription:" + p.Account.Agent
+		if p.IsPlugin() {
+			id = "plugin:" + p.ID
+			if Moved(p.Account.plugin.ID) {
+				id = "subscription:" + p.Account.plugin.ID
+			}
+		}
+	} else if p.Preset != "" {
+		id = "preset:" + p.Preset
+	}
+	return settings.ProviderDiscoveryAllowed(id)
+}
+
 var errAccountDiscoveryOff = errors.New("subscription accounts are off in magpie (Settings → Privacy, or `magpie accounts discovery on`)")
 
 // discoveryOff is whether agents' sign-ins are left unread; see above.

@@ -12,11 +12,12 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/yetone/magpie/internal/appdir"
+	"github.com/yetone/magpie/internal/distribution"
 )
 
 // appPath is where Win+R and `start magpie` look magpie.exe up: the user's
 // own, no administrator needed
-const appPath = `Software\Microsoft\Windows\CurrentVersion\App Paths\magpie.exe`
+var appPath = `Software\Microsoft\Windows\CurrentVersion\App Paths\` + distribution.ExecutableName() + ".exe"
 
 func registerAppPath(exe string) {
 	if k, _, err := registry.CreateKey(registry.CURRENT_USER, appPath, registry.SET_VALUE); err == nil {

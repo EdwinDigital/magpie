@@ -23,13 +23,18 @@ const fresh = () => ({
   profiles: [],
 });
 
-function server(lang, posts) {
+function server(lang, posts, foreign = false) {
   let cur = fresh();
+  if (foreign) cur.agents = [{ id: "workbuddy", name: "WorkBuddy", icon: "generic", path: "/fixture/workbuddy", wiringId: "magpie-enterprise-msai-client", foreignOwner: "magpie", fields: [{ key: "provider", label: "provider", value: "", options: [{ value: "magpie-enterprise-msai-client", label: "msai-client", icon: "magpie" }] }] }];
   const reply = (route) => route.fulfill({ json: { ...cur, settings: { lang, theme: "light" } } });
-  return async (route) => {
+  const handle = async (route) => {
     const req = route.request(), url = new URL(req.url());
     const json = (data) => route.fulfill({ json: data });
-    if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:true};` });
+    if (url.pathname === "/boot.js") {
+      const boot = {lang, theme:"light", web:true};
+      if (foreign) { boot.cliName = "msai-client"; boot.enterprise = {effective:{appName:"msai-client",visibleProviders:[],visibleAgents:["workbuddy"],publicPluginCatalog:false,libraryEnabled:false},revision:"owner"}; }
+      return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs=${JSON.stringify(boot)};` });
+    }
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return reply(route);
     const act = url.pathname.match(/^\/api\/agents\/(connect|disconnect)\/(\w+)$/);
@@ -51,6 +56,8 @@ function server(lang, posts) {
     const contentType = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" }[path.extname(file)];
     await route.fulfill({ body: await fs.readFile(file), contentType });
   };
+  handle.releaseOwner = () => { delete cur.agents[0].foreignOwner; };
+  return handle;
 }
 
 const words = {
@@ -114,4 +121,36 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual(errors, []);
     });
   }
+}
+
+// Browser plugin not available. These fixtures never reach native Agent files.
+for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
+  test(engine + ": enterprise ownership is visible and blocks silent takeover", async t => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch());
+    t.after(() => browser.close());
+    for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) await t.test(lang, async sub => {
+      const context = await browser.newContext({ viewport: {width: lang === "de" ? 430 : 1024, height: 820} });
+      sub.after(() => context.close());
+      const page = await context.newPage(), posts = [], errors = [], handler = server(lang, posts, true);
+      page.on("pageerror", error => errors.push(error.message));
+      await page.route("**/*", handler);
+      await page.goto("http://fixture.test/?view=agents");
+      const r = page.locator(row("workbuddy")), sw = r.locator(".ag-conn");
+      await sw.waitFor();
+      assert.equal(await sw.isDisabled(), true);
+      assert.equal(await sw.getAttribute("aria-checked"), "false");
+      assert.match(await r.locator(".ag-st-t").textContent(), /magpie/);
+      assert.match(await sw.getAttribute("title"), /magpie/);
+      assert.equal(await page.title(), "msai-client", "the public owner is not renamed to the enterprise's display brand");
+      if (process.env.MAGPIE_TEST_SCREENSHOTS && lang === "zh") {
+        await fs.mkdir(process.env.MAGPIE_TEST_SCREENSHOTS, {recursive:true});
+        await page.screenshot({path:path.join(process.env.MAGPIE_TEST_SCREENSHOTS, engine+"-agent-owner.png")});
+      }
+      assert.deepEqual(posts, [], "viewing a foreign owner did not connect or disconnect it");
+      handler.releaseOwner();
+      await page.evaluate(async () => { state = await api("state"); renderAgents(); });
+      assert.equal(await sw.isDisabled(), false, "the namespaced provider is connectable after the other owner releases it");
+      assert.deepEqual(errors, []);
+    });
+  });
 }

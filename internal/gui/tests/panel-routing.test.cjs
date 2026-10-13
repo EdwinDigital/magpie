@@ -143,7 +143,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         from: [...s.querySelectorAll(".ps-ag .ps-name")].map((e) => e.textContent),
         to: [...s.querySelectorAll(".ps-dst")].map((e) => e.querySelector(".ps-name").textContent + ":" + e.className.split(" ").pop()),
         wires: [...s.querySelectorAll(".ps-wire")].filter((w) => (w.getAttribute("d") || "").startsWith("M")).length,
-        hub: !!s.querySelector(".ps-hub use"), below: s.getBoundingClientRect().bottom <= document.querySelector(".pr-list").getBoundingClientRect().top,
+        hub: (() => {
+          const mark = s.querySelector(".ps-hub svg, .ps-hub img, .ps-hub .mask");
+          const rect = mark?.getBoundingClientRect();
+          return !!rect && rect.width > 0 && rect.height > 0
+            && (mark.tagName.toLowerCase() !== "img" || mark.complete && mark.naturalWidth > 0)
+            && (!mark.classList.contains("mask") || getComputedStyle(mark).maskImage !== "none");
+        })(), below: s.getBoundingClientRect().bottom <= document.querySelector(".pr-list").getBoundingClientRect().top,
         inside: [...s.querySelectorAll(".ps-node")].every((n) => { const a = n.getBoundingClientRect(), b = s.getBoundingClientRect(); return a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom; }),
         border: getComputedStyle(s.querySelector(".ps-node")).borderLeftWidth,
       }));

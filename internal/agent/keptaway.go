@@ -45,6 +45,9 @@ func keyName(name string) bool {
 // LAN sharing key.
 func ourToken(v string) bool {
 	v = strings.TrimPrefix(v, "Bearer ")
+	if gateway.Token == "magpie" && strings.HasPrefix(v, "magpie-enterprise-") {
+		return false
+	}
 	return ourKey(v) || strings.HasPrefix(v, gateway.Token+"-")
 }
 

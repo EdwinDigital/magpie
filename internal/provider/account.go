@@ -429,7 +429,7 @@ func claudeCredentialsPath() string {
 }
 
 func readClaudeCredential() (claudeCredentials, claudeCredentialLocation, bool) {
-	if settings.AccountDiscoveryOff() {
+	if settings.AccountDiscoveryOff() || !localDiscoveryAllowed("claude", "claude") {
 		return claudeCredentials{}, claudeCredentialLocation{}, false
 	}
 	path := claudeCredentialsPath()
@@ -503,7 +503,7 @@ func keychainText(out []byte) ([]byte, bool) {
 }
 
 func claudeCredential() (claudeCredentials, claudeCredentialLocation, bool) {
-	if settings.AccountDiscoveryOff() {
+	if settings.AccountDiscoveryOff() || !localDiscoveryAllowed("claude", "claude") {
 		return claudeCredentials{}, claudeCredentialLocation{}, false
 	}
 	claudeCacheMu.Lock()
@@ -579,6 +579,9 @@ var claudeExecutable = claudecode.Find
 // still lying around (a keychain item logout left behind), so a signed-out
 // account stops showing up as a provider.
 func claudeIdentity() (user, plan string, signedOut bool) {
+	if !localDiscoveryAllowed("claude", "claude") {
+		return "", "", false
+	}
 	claudeStatusMu.Lock()
 	defer claudeStatusMu.Unlock()
 	switch {
@@ -897,7 +900,20 @@ func codexAccount(home string) (Provider, bool) {
 		return Provider{}, false
 	}
 	path := filepath.Join(appdir.CodexHomeIn(home), "auth.json")
-	b, err := readAccountFile(path)
+	var b []byte
+	var err error
+	if localDiscoveryAllowed("codex", "codex") {
+		b, err = readAccountFile(path)
+	} else {
+		// Already remembered accounts keep their metadata without rescanning
+		// the native auth file. The sign hook reads it only for an actual turn.
+		for _, l := range readLogins() {
+			if l.Agent == "codex" && l.On && len(l.Auth) > 0 {
+				b = l.Auth
+				break
+			}
+		}
+	}
 	var a codexAuth
 	if err != nil || json.Unmarshal(b, &a) != nil || a.Tokens.AccessToken == "" || a.AuthMode == "apikey" {
 		return Provider{}, false
@@ -1087,6 +1103,9 @@ func copilotLogin(cfg string) (copilotApp, bool) {
 // github.com and the first on an enterprise's <name>.ghe.com, each with the
 // file it was read from.
 func copilotEditorLogins(cfg string) (gh, ghe *copilotApp) {
+	if !localDiscoveryAllowed("copilot", "vscode", "vscode-insiders", "copilot-jetbrains") {
+		return nil, nil
+	}
 	for _, name := range []string{"apps.json", "hosts.json"} {
 		var apps map[string]copilotApp
 		src := filepath.Join(cfg, "github-copilot", name)

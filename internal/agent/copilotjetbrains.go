@@ -57,7 +57,7 @@ import (
 const copilotJBID = "copilot-jetbrains"
 
 // The keys of magpie's provider in byok.json.
-const (
+var (
 	copilotJBConfig = magpieID + "-provider-config"
 	copilotJBKey    = magpieID + "-api-key"
 	copilotJBModels = magpieID + "-models-config"

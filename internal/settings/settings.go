@@ -25,6 +25,7 @@ import (
 
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/fonts"
@@ -35,9 +36,10 @@ import (
 
 // Settings is what the user chose. "" and "system" both mean "follow the OS".
 type Settings struct {
-	Theme string `json:"theme,omitempty"` // system | light | dark
-	Lang  string `json:"lang,omitempty"`  // system | en | zh
-	Tray  string `json:"tray,omitempty"`  // what clicking the tray icon opens: panel | window
+	Enterprise *Enterprise `json:"enterprise,omitempty"`
+	Theme      string      `json:"theme,omitempty"` // system | light | dark
+	Lang       string      `json:"lang,omitempty"`  // system | en | zh
+	Tray       string      `json:"tray,omitempty"`  // what clicking the tray icon opens: panel | window
 	// SessionTerminal is the Mac app that opens a resumed session, by bundle
 	// id. "" and "system" follow the .command file association.
 	SessionTerminal string `json:"sessionTerminal,omitempty"`
@@ -773,6 +775,7 @@ func (s Settings) Compact() int {
 // icon (yoooo on Discord: usage turned off on a Mac came back from a
 // Windows box that shows it).
 func (s *Settings) KeepOwn(cur Settings) {
+	s.Enterprise = cur.Enterprise
 	s.GatewayConversations = cur.GatewayConversations
 	s.UIFont, s.CodeFont = cur.UIFont, cur.CodeFont
 	s.Window, s.Proxy, s.Port, s.Dock, s.DockWindow, s.Lightweight = cur.Window, cur.Proxy, cur.Port, cur.Dock, cur.DockWindow, cur.Lightweight
@@ -852,6 +855,7 @@ func load() Settings {
 	if b, err := filememo.Read("settings", Path(), func(b []byte) ([]byte, error) { return b, nil }); err == nil {
 		// parsed once: this runs for every model of every agent
 		if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &s); err != nil {
+			s = Settings{}
 			// one left all zero by a crash (#1505) is its last good generation
 			if bak, err := lastgood.Fallback(Path(), b, validSettings); err == nil {
 				s = Settings{}
@@ -918,7 +922,7 @@ func GatewayAddr() string {
 func SavedAddr() string {
 	p := Load().Port
 	if p == 0 || CheckPort(p) != nil {
-		p = DefaultPort
+		p = distribution.GatewayPort()
 	}
 	return fmt.Sprintf("127.0.0.1:%d", p)
 }
@@ -942,6 +946,10 @@ func SetGatewayConversations(on bool) error {
 
 // save is called under fileMu. Only the consent setter may replace recording.
 func save(s Settings, recording bool) error {
+	return saveEnterprise(s, recording, false)
+}
+
+func saveEnterprise(s Settings, recording, enterprise bool) error {
 	defer filememo.Forget() // read again, where a request holds it
 	s = s.normal()
 	if !slices.Contains(Themes, s.Theme) {
@@ -1068,6 +1076,7 @@ func save(s Settings, recording bool) error {
 	// Load may have returned defaults or only part of an unreadable file.
 	// Do not replace it, including its permissions, with those values.
 	consent := false
+	var currentEnterprise *Enterprise
 	if b, err := steady.ReadFile(Path()); err == nil {
 		b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
 		if len(bytes.TrimSpace(b)) != 0 {
@@ -1083,12 +1092,19 @@ func save(s Settings, recording bool) error {
 				_ = json.Unmarshal(bytes.TrimPrefix(bak, []byte("\xef\xbb\xbf")), &stored)
 			}
 			consent = stored.GatewayConversations
+			currentEnterprise = stored.Enterprise
 		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("could not read settings at %s: %w", Path(), err)
 	}
 	if !recording {
 		s.GatewayConversations = consent
+	}
+	if !enterprise {
+		s.Enterprise = currentEnterprise
+	}
+	if err := ValidateEnterprise(s.Enterprise); err != nil {
+		return err
 	}
 	// the file there now is kept first, before anything below can make
 	// one: as the last good generation, or aside when it doesn't read

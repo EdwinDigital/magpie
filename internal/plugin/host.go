@@ -451,8 +451,9 @@ type host struct {
 	// proxy is the proxy the host was started with (hostProxy), which
 	// host.js keeps for its life; proxyAt is when get last compared it
 	// with magpie's now (proxyMoved), zero for a host not started here.
-	proxy   string
-	proxyAt time.Time
+	proxy       string
+	proxyAt     time.Time
+	gatewayAddr string
 }
 
 // lineLimit is the longest line this host reads from the child.
@@ -808,17 +809,18 @@ func startOn(ctx context.Context, bun string) (*host, bool, error) {
 	hctx, hcancel := context.WithCancel(context.Background())
 	h := &host{
 		cmd: cmd, in: in,
-		calls:    map[int64]*call{},
-		dead:     make(chan struct{}),
-		slots:    make(chan struct{}, callLimit()),
-		streams:  make(chan struct{}, streamLimit()),
-		out:      make(chan writeReq, callLimit()),
-		ctrl:     map[int64]*ctrl{},
-		ctrlWake: make(chan struct{}, 1),
-		ctx:      hctx,
-		cancel:   hcancel,
-		proxy:    proxy,
-		proxyAt:  time.Now(),
+		calls:       map[int64]*call{},
+		dead:        make(chan struct{}),
+		slots:       make(chan struct{}, callLimit()),
+		streams:     make(chan struct{}, streamLimit()),
+		out:         make(chan writeReq, callLimit()),
+		ctrl:        map[int64]*ctrl{},
+		ctrlWake:    make(chan struct{}, 1),
+		ctx:         hctx,
+		cancel:      hcancel,
+		proxy:       proxy,
+		proxyAt:     time.Now(),
+		gatewayAddr: settings.GatewayAddr(),
 	}
 	go func() {
 		sc := bufio.NewScanner(stderr)
@@ -1404,6 +1406,9 @@ func proxied(hp string) bool {
 // changed in Settings never reached a running host either. Called under
 // hostMu.
 func (h *host) proxyMoved() bool {
+	if h.gatewayAddr != "" && h.gatewayAddr != settings.GatewayAddr() {
+		return true
+	}
 	every := proxyLookEvery
 	if !proxied(h.proxy) {
 		every = min(every, proxyLookNone)
@@ -1424,6 +1429,8 @@ func hostEnv(env []string) []string {
 	for _, e := range env {
 		k, v, _ := strings.Cut(e, "=")
 		switch strings.ToUpper(k) {
+		case "MAGPIE_ADDR":
+			// The settings-selected address is appended below for this host.
 		case "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY":
 			out = append(out, "MAGPIE_"+k+"="+netproxy.ForBun(v))
 		case "NO_PROXY":
@@ -1432,6 +1439,7 @@ func hostEnv(env []string) []string {
 			out = append(out, e)
 		}
 	}
+	out = append(out, "MAGPIE_ADDR="+settings.GatewayAddr())
 	return out
 }
 

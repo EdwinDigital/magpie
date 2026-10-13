@@ -246,7 +246,7 @@ func zcodeSaved(l savedLogin) (zcodeKey, bool) {
 
 // zcodeLogins is every ZCode account signed in, the first in use first.
 func zcodeLogins() []zcodeLoginKey {
-	ownUser, own, hasOwn := zcodeOwn()
+	ownUser, own, hasOwn := zcodeOwnDiscovered()
 	if !hasOwn {
 		ownUser = ""
 	}
@@ -1060,4 +1060,12 @@ func firstErr(err error, otherwise string) string {
 		return err.Error()
 	}
 	return otherwise
+}
+
+// zcodeOwnDiscovered checks visibility before borrowing another application's login.
+func zcodeOwnDiscovered() (string, zcodeKey, bool) {
+	if !localDiscoveryAllowed("zcode", "zcode") {
+		return "", zcodeKey{}, false
+	}
+	return zcodeOwn()
 }

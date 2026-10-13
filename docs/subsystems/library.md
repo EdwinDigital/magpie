@@ -7,6 +7,10 @@ files in that agent's format, and takes back only what it wrote. Everything
 else in those files stays as it was. Package `internal/library` also gives
 agents RTK, a CLI that cuts shell output down before the model reads it.
 
+The [enterprise GUI switch](enterprise-client.md#presentation-contracts) gates
+navigation and GUI library API reads/writes before scans or changes. It does not
+delete these files, remove applied resources or disable the library CLI/sync.
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |

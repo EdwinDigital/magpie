@@ -3,6 +3,7 @@ package sessions
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/settings"
 	"os"
 	"path/filepath"
 	"sort"
@@ -51,7 +52,17 @@ var WSLRunning func(distro string) bool
 var WSLOff func() bool
 
 // wslLooking is whether the distros' sessions are listed.
-func wslLooking() bool { return WSLHomes != nil && (WSLOff == nil || !WSLOff()) }
+func wslLooking() bool {
+	if WSLHomes == nil || WSLOff != nil && WSLOff() {
+		return false
+	}
+	for _, a := range wslAgents {
+		if settings.AgentDiscoveryAllowed(a.agent) {
+			return true
+		}
+	}
+	return false
+}
 
 // wslUp is WSLRunning's answer; true when nothing set it (the listing
 // alone decides).
@@ -70,6 +81,9 @@ var wslAgents = []struct{ agent, dir string }{
 func wslScan(home string) []file {
 	var out []file
 	for _, a := range wslAgents {
+		if !settings.AgentDiscoveryAllowed(a.agent) {
+			continue
+		}
 		dir := filepath.Join(home, a.dir)
 		switch a.agent {
 		case "claude":
@@ -158,7 +172,7 @@ func wslFiles(agents ...string) []file {
 	}
 	want := map[string]bool{}
 	for _, a := range agents {
-		want[a] = true
+		want[a] = settings.AgentDiscoveryAllowed(a)
 	}
 	// which run is asked outside the lock: wsl.exe may take a while
 	wslSess.Lock()
@@ -286,10 +300,14 @@ func wslDirs() []string {
 	defer wslSess.Unlock()
 	var out []string
 	seen := map[string]bool{}
+	allowed := map[string]bool{}
+	for _, a := range wslAgents {
+		allowed[a.agent] = settings.AgentDiscoveryAllowed(a.agent)
+	}
 	for _, l := range wslSess.lists {
 		for _, e := range l.Files {
 			for _, a := range wslAgents {
-				if d := filepath.Join(l.Home, a.dir); a.agent == e.Agent && !seen[d] {
+				if d := filepath.Join(l.Home, a.dir); a.agent == e.Agent && !seen[d] && allowed[a.agent] {
 					seen[d] = true
 					out = append(out, d)
 				}

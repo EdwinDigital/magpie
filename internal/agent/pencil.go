@@ -113,7 +113,7 @@ func pencilProviderJSON(gw string) map[string]any {
 		e["compat"] = map[string]any{}
 		ms = append(ms, e)
 	}
-	return map[string]any{"name": "magpie", "baseUrl": gw + "/v1", "api": "openai-completions",
+	return map[string]any{"name": wiringDisplayName(), "baseUrl": gw + "/v1", "api": "openai-completions",
 		"apiKey": gateway.TokenFor("pencil"), "models": ms}
 }
 

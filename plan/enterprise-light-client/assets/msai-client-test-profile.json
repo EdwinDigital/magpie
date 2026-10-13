@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "tenantId": "enterprise-test",
+  "distributionId": "msai-client",
+  "profileRevision": 1,
+  "brand": {
+    "displayName": "msai-client",
+    "companyName": "",
+    "logoAsset": ""
+  },
+  "identity": {
+    "macBundleId": "com.msai.client.test",
+    "windowsAppId": "com.msai.client.test",
+    "artifactSlug": "msai-client",
+    "urlScheme": "msai-client"
+  },
+  "enterpriseDefaults": {
+    "visibleProviders": [],
+    "showPluginProviderEntry": false,
+    "showCustomProviderEntry": false,
+    "publicPluginCatalog": false,
+    "libraryEnabled": false
+  },
+  "updates": {
+    "mode": "manual",
+    "channel": "stable",
+    "feedUrl": "",
+    "manifestKeys": {}
+  }
+}

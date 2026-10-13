@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Codex's background app-server (the daemon codex sessions attach to)
@@ -91,6 +92,12 @@ func KeepCodexDaemonCurrent(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+		if !settings.AgentDiscoveryAllowed("codex") {
+			continue
+		}
+		if codex(home).ForeignOwner() != "" {
+			continue
 		}
 		if _, err := os.Stat(path); err == nil {
 			if c := codexDaemonCheck(path); c.Restarted {

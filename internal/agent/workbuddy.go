@@ -62,6 +62,22 @@ func workbuddyBuild(id, name, dir string, aliases []string) *Agent {
 		ID: id, Name: name, Icon: "workbuddy-color", Aliases: aliases,
 		UA:  []string{id},
 		Dir: dir, Path: path,
+		WiringOwner: func() string {
+			if workbuddyWired(path) {
+				return magpieID
+			}
+			d, _ := workbuddyRead(path)
+			for _, raw := range d.models {
+				var e workbuddyEntry
+				if json.Unmarshal(raw, &e) == nil && wiringNamespace(e.Vendor) {
+					if e.Vendor == "magpie" && ownedLegacyWiring(id, e.URL) {
+						return magpieID
+					}
+					return e.Vendor
+				}
+			}
+			return ""
+		},
 		Sync: func() error {
 			if !workbuddyWired(path) {
 				return nil
@@ -128,7 +144,7 @@ type workbuddyEntry struct {
 
 func workbuddyMine(raw json.RawMessage) (workbuddyEntry, bool) {
 	var e workbuddyEntry
-	return e, json.Unmarshal(raw, &e) == nil && e.Vendor == magpieID
+	return e, json.Unmarshal(raw, &e) == nil && (e.Vendor == magpieID || keyOwner(e.APIKey) == magpieID)
 }
 
 // workbuddyWired reports whether models.json has magpie's models.
@@ -183,6 +199,9 @@ func buddyWriteAt(path, agent string, on bool, where place) error {
 	at := -1 // where magpie's were, which they keep
 	for _, raw := range d.models {
 		e, ok := workbuddyMine(raw)
+		if !ok && (e.Vendor == "magpie" || keyOwner(e.APIKey) == "magpie") && ownedLegacyWiring(agent, e.URL) {
+			ok = true
+		}
 		// WorkBuddy's model settings save an edited entry under the vendor
 		// of the provider it matches, "Custom" for magpie's: still magpie's
 		// model by its key, which a sync must not add a second time

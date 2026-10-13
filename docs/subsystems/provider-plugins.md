@@ -4,6 +4,10 @@ Some built-in subscriptions are deprecated and have community plugins that provi
 
 ## Responsibilities and sources of truth
 
+The enterprise client's [catalog and installation controls](enterprise-client.md#presentation-contracts)
+do not change the ownership described here. Public discovery is closed by default,
+while explicit installation, installed maintenance and moved requests still run.
+
 | Part | Responsibility | Source |
 | --- | --- | --- |
 | Provider migration | Match subscriptions to plugins, record ownership, transfer accounts, and maintain required plugin versions | [`migrate.go`](../../internal/provider/migrate.go) and `migrate_*.go` in the same directory |
@@ -29,6 +33,76 @@ The `movers` map assembled in `internal/provider/migrate*.go` is the authoritati
 For a moved subscription, its built-in upstream implementation does not run. Plugin accounts use `Account.Agent == "plugin"`; requests reach `plugin.Fetch` through `Provider.Do` and bypass the built-in subscription adapter. Magpie still handles routing, protocol conversion, quota handling, and compatibility adjustments, as well as the plugin host, provider integration, migration code, and GUI plugin paths.
 
 Quota aggregation in [`quotas.go`](../../internal/provider/quotas.go) suppresses a key's GLM Coding Plan card only when its comparable reset windows match a ZCode subscription card: built-in or moved `zcode`, or independently installed `zcode-plugin`. [`PlanQuotas`](../../internal/provider/planquota.go) identifies GLM plans by their quota endpoint, including custom provider ids. Matching reset schedules from unrelated vendors do not hide cards. Within this pair, resets remain a heuristic for the shared account; a plan's `User` is a key label or mask, not a login identity. Errors, conflicting resets, or no comparable resets keep the plan visible. This applies to the Usage page, tray, quota reports, alerts, and quota waits; it does not change plugin ownership or upstream requests.
+
+## Explicit installation from a ZIP
+
+The persistent install form on the Plugins page accepts npm, GitHub, local
+folders and **Upload ZIP**. ZIP upload is available in the desktop and web clients
+even when enterprise settings close public discovery. It is an explicit trusted
+code installation, not a new public catalog or a plugin sandbox.
+
+[`plugin_upload.go`](../../internal/gui/plugin_upload.go) handles
+`POST /api/plugins/upload`: one multipart file named `archive`, with a `.zip`
+filename and the `X-Magpie-Upload: zip` header. The header prevents a cross-origin
+HTML form from installing code; the web client's existing authentication remains
+in effect. The request is bounded to 32 MiB plus 64 KiB multipart overhead,
+temporary multipart files are removed, and successful installation follows the
+same `provider.HandOver(ctx, false)` and state response as the existing Add route.
+
+[`AddZIP`](../../internal/plugin/archive.go) uses Go's ZIP reader and a confined
+filesystem root, rejects traversal/absolute paths, Windows path aliases,
+case-insensitive duplicates, links and special files, and bounds archives to
+32 MiB compressed, 32 MiB per file, 128 MiB extracted and 4096 entries. Extraction
+checks the actual stream, CRC and cancellation, not just the size declared by
+the archive. Failed imports leave the installed list unchanged and remove their
+owned extracted directory.
+
+The ZIP must contain a valid `package.json` and ready-to-load files at its root
+or in one enclosing directory (GitHub-style wrappers are supported). Finder's
+`__MACOSX` and `.DS_Store` metadata are ignored. Include build output and any
+dependencies required by a local-folder installation; a source-only repository
+ZIP is not automatically built and package lifecycle scripts are not run.
+Existing local-plugin validation/loading, including pi's dependency handling,
+is reused rather than introducing another loader.
+
+Successful imports live under `plugins/imports/zip-*/<package-name>` in the active
+configuration directory; the persisted entry's `archive` field identifies this
+owned directory. They load as local-folder plugins, survive host/app restarts and
+do not receive npm/GitHub updates. Another upload is another local installation,
+not an implicit upgrade of an existing package. Removing an imported entry removes
+its owned directory; removing an ordinary local-folder plugin never deletes the
+user's source folder. Authentication is retained under the existing removal rule.
+
+Local file/folder and ZIP installations prepare the Bun host runtime before
+committing the installed entry, just as npm/GitHub installs do. This matters for
+a fresh enterprise client whose isolated cache has no Bun from the public app.
+Runtime download/checksum/cancellation failures leave the installed list unchanged
+and remove an unsuccessful ZIP's owned extraction; middleware/agent-only plugins
+that run in magpie itself require no Bun. Opening installed plugin management
+also starts enabled provider plugins registered by older versions, even without
+a cached Bun, and reports runtime/provider-list errors instead of presenting an
+unstarted host as having no usable sign-ins. This does not grant providers
+visibility: an enterprise's provider selections still apply after loading.
+
+An installed plugin row carries `hiddenProviders` for enterprise-disabled
+suppliers rather than confusing them with failed loading or absent auth hooks.
+The GUI projects current policy with the descriptor's `id`/`pid` (not the mapped
+Agent shape), so a policy change updates the hint without restart. Selecting a
+supplier is still explicit. The host environment gets `settings.GatewayAddr()` as
+`MAGPIE_ADDR`, even without a parent environment override; a changed address
+retires/restarts the host on its next use. Enterprise Bun binaries use the package
+executable basename within the enterprise cache; only that cache's previous
+`magpie-bun` name is migrated, never public magpie's copy.
+
+Verification: `go test -tags nogui ./internal/plugin ./internal/gui -run
+'TestZIP|TestPluginZIP'` and `node --test
+internal/gui/tests/plugin-zip.test.cjs`. The latter checks both engines, all five
+languages, narrow layouts, binary multipart receipt at a local HTTP server,
+closed-catalog behavior, busy/draft preservation, error recovery and retry.
+Fresh-cache runtime regression coverage is in
+[`local_runtime_test.go`](../../internal/plugin/local_runtime_test.go) and
+[`plugins_runtime_test.go`](../../internal/gui/plugins_runtime_test.go), including
+a locally served Bun download and a synthetic ZIP provider loaded across restarts.
 
 ## A plugin's daily check-in
 

@@ -43,6 +43,8 @@ function server(lang, posts, { web = false, size = 100 } = {}) {
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:${web},textSize:${size}};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
     if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", textSize: size }, fx: cur.fx });
+    if (url.pathname === "/api/enterprise") return json({ effective: { appName: "magpie", visibleProviders: [], libraryEnabled: true, publicPluginCatalog: true }, defaults: { appName: "magpie" }, config: null, revision: "fixture", restartRequired: [] });
+    if (url.pathname === "/api/enterprise/providers") return json([]);
     if (url.pathname === "/api/settings") {
       if (req.method() === "POST") {
         const body = req.postDataJSON();
@@ -62,15 +64,15 @@ function server(lang, posts, { web = false, size = 100 } = {}) {
   };
 }
 
-const TABS = ["general", "usage", "network", "models", "privacy", "otel", "sync", "about"];
+const TABS = ["general", "enterprise", "usage", "network", "models", "privacy", "otel", "sync", "about"];
 const L = {
-  en: ["General", "Allowances", "Network and sharing", "Models", "Privacy", "Observability", "Sync and backup", "About"],
-  zh: ["常规", "额度", "网络与共享", "模型", "隐私", "可观测性", "同步与备份", "关于"],
+  en: ["General", "Enterprise configuration", "Allowances", "Network and sharing", "Models", "Privacy", "Observability", "Sync and backup", "About"],
+  zh: ["常规", "企业配置", "额度", "网络与共享", "模型", "隐私", "可观测性", "同步与备份", "关于"],
 };
 const LABEL = { en: "Settings", zh: "设置" };
 // what each part shows: an element of its own rows, drawn by the page
 const MARK = {
-  general: "#themeSegs .opt", usage: "#currencySegs .opt", network: "#proxySegs", models: "#imagesList .row",
+  enterprise: "#enterprise-appName", general: "#themeSegs .opt", usage: "#currencySegs .opt", network: "#proxySegs", models: "#imagesList .row",
   privacy: "#redactList .row", otel: "#otelList .row", sync: "#syncList .row", about: "#about .row",
 };
 
@@ -227,7 +229,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await page.locator("#setTabs [role=tab]:visible").count(), TABS.length, what + ": every tab shown");
           // the tabs take a few lines at most, and the part starts under them
           const h = await page.locator("#setTabs").evaluate((e) => e.getBoundingClientRect().height);
-          assert(h <= 3 * 26, what + `: the tabs ${h}px tall`);
+          // The ninth Enterprise tab adds one possible wrap on a phone.
+          assert(h <= 4 * 26, what + `: the tabs ${h}px tall`);
           const under = await page.evaluate(() => document.querySelector("#setPage-general").getBoundingClientRect().top - document.querySelector("#setTabs").getBoundingClientRect().bottom);
           assert(under >= 0, what + ": the part under the tabs");
           // the last tab, on the last line, reached with one click, moving nothing

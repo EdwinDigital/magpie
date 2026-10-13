@@ -1,5 +1,86 @@
 # Dropdown browser regression
 
+## Plugin ZIP upload
+
+`plugin-zip.test.cjs` checks the top **Upload ZIP** entry with public discovery
+closed, all five languages, desktop/narrow viewports and both browser engines.
+A local HTTP sink receives the real multipart bytes (WebKit's intercepted
+`postDataBuffer()` does not preserve arbitrary binary data). The test verifies
+the archive field/header, serialized bytes, busy/draft preservation, refresh,
+invalid-extension feedback, server-error recovery and same-file retry.
+`ARTIFACT_DIR` retains screenshots. Browser plugin not available; fixtures never
+contact a real third-party service or read employee configuration.
+
+```sh
+node --test internal/gui/tests/plugin-zip.test.cjs
+go test -tags nogui ./internal/plugin ./internal/gui -run 'TestZIP|TestPluginZIP'
+```
+
+The Go route test uses the actual GUI Handler with closed enterprise discovery.
+The importer tests cover root/wrapped packages, persisted files, removal versus
+ordinary local sources, unsafe paths/links, corruption, extraction limits and
+cancellation. The host case runs a synthetic ZIP plugin on Bun when available.
+Run under temporary HOME with pinned Go caches, as required by the code standards.
+
+## Enterprise client
+
+`enterprise-agent-selection.test.cjs` verifies six editable defaults, the last
+two independently collapsed/searchable model-style lists, draft/focus retention,
+save, hidden-tab/stale-payload projection and an explicit empty agent selection.
+Both engines and all five languages include 980px/390px and light/dark samples.
+Scroll with actual mouse-wheel input: this app intentionally cancels automatic
+scroll-on-click. `ASSET_DIR` supports isolated mutation checks and `ARTIFACT_DIR`
+retains viewport screenshots.
+
+Go tests verify legacy/null versus explicit-empty agent lists, detector/install
+short-circuiting, current WSL script selection, cold desktop metadata versus
+explicit lookup, and FIFO/process witnesses showing no unselected native credential
+reads or CLI identity commands. Tests never inspect employee credentials.
+
+`enterprise-routing-motion.test.cjs` checks enterprise request/reply/replay
+without any decorative flier creation, even with the original name and no custom
+logo. It checks header gesture suppression, preserved wires/packets/status and
+a late policy removing an active carrier without disconnecting its packet.
+Both engines, all five languages, light/dark samples and 390px/980px viewports
+use isolated synthetic traces; `ARTIFACT_DIR` retains stage screenshots.
+`ASSET_DIR` supports behavioral mutation checks without changing live source.
+
+`enterprise-theme-icons.test.cjs` checks two upload previews, preparation without
+saving, draft/focus preservation, manual/system theme changes, header/favicon
+selection, cancelled late upload and invalid-upload safety in both engines and
+all five languages. `brandicon` tests check white-input contrast, alpha gaps,
+JPEG uniform-backdrop handling, aspect ratio and frozen-source idempotence.
+Package/API tests confirm the same outputs and native macOS decoding of both
+light/dark ICNS sets. Browser plugin not available; use the repository Playwright
+fixture workflow, never an employee's real account/configuration.
+
+`enterprise.test.cjs` checks the enterprise settings form, literal brand rendering,
+fixed Copilot/local Ollama defaults, selected provider projection, hidden library,
+top persistent plugin installation, no closed-catalog requests, cross-window draft
+preservation, conflict handling, stale reads, candidate refresh, restart reminders
+and narrow layout in en/zh/zh-TW/ja/de, on Chromium and WebKit.
+`enterprise-brand.test.cjs` checks own-brand translations and technical identifiers
+without a browser. Mobile desktop comparisons retain pixel checks for unchanged
+surfaces; Settings and Plugins have intentional changes checked by the enterprise
+interaction/layout tests instead.
+API responses and credentials are fixtures; `ARTIFACT_DIR` retains screenshots.
+
+`enterprise-update.test.cjs` checks the About page's immutable enterprise channel,
+manual-package explanation and absent update controls, no public mirror fallback
+after a failed enterprise check, both themes and narrow layouts in all five
+languages on Chromium and WebKit. Go tests exercise signed enterprise version
+detection, unauthorized/unavailable feeds without public fallback, public-mode
+compatibility, and the distribution API's binding of a profile to its own channel.
+
+```sh
+node --test internal/gui/tests/enterprise.test.cjs
+go test -tags nogui ./internal/gui ./internal/settings -run Enterprise
+```
+
+Go tests use the actual GUI Handler for closed-feature side-effect boundaries,
+conflict status, bounded image upload and integrity. They do not certify OS-level
+signing or actual Windows GUI behavior. See `docs/subsystems/enterprise-client.md`.
+
 ## Installed desktop fonts
 
 `fonts.test.cjs` exercises the interface/code font controls with installed
@@ -2260,3 +2341,16 @@ and de. English and Chinese, Chromium and WebKit.
 node --test internal/gui/tests/tencent-access-key.test.cjs
 go test -tags nogui ./internal/gui -run TestProviderListTellsTencentAccessKey
 ```
+
+### Enterprise packaging completion regression
+
+The October 2026 enterprise completion runs the full UI suite, not just the
+enterprise pages. `panel-routing` tests visible brand artwork (CSS masks, SVG or
+images), not one old `<use>` DOM shape. `settings-sections` permits the ninth
+Enterprise tab's extra phone wrap while checking all tabs, overflow and page
+position. `gateway-key-groups` and `market-have` wait for actual save receipts
+under deliberately delayed fixture responses; `purpose-filter` focuses its test
+menu without causing its own scroll before measuring the keyboard return.
+`routing-pause` wheels controls into the visible area above a non-hidden footer
+and checks hit-testing instead of forcing clicks. The full initial run and the
+six-file corrective rerun are reported separately in the validation report.

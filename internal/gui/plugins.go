@@ -69,10 +69,11 @@ func pluginSubs() []pluginSubJSON {
 // pluginEntryJSON is a plugin as Settings → Plugins lists it.
 type pluginEntryJSON struct {
 	plugin.Entry
-	Error     string   `json:"error,omitempty"`   // why it didn't load
-	Providers []string `json:"providers"`         // the names of those it signs in to
-	Version   string   `json:"version,omitempty"` // installed
-	Latest    string   `json:"latest,omitempty"`  // on npm, when the market asked
+	Error           string   `json:"error,omitempty"` // why it didn't load
+	Providers       []string `json:"providers"`       // the names of those it signs in to
+	HiddenProviders []string `json:"hiddenProviders,omitempty"`
+	Version         string   `json:"version,omitempty"` // installed
+	Latest          string   `json:"latest,omitempty"`  // on npm, when the market asked
 	// Package is the package installed from a git repository, which its
 	// own package.json names
 	Package string `json:"package,omitempty"`
@@ -145,7 +146,17 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 	names := map[string][]string{}
 	clashes := map[string][]plugin.Clash{}
 	idName := map[string]string{}
-	if len(l.Plugins) > 0 && (plugin.Running() || plugin.HasBun()) {
+	hidden := map[string][]string{}
+	needsHost := false
+	for _, e := range l.Plugins {
+		if !e.Off && !plugin.InMagpieOnly(plugin.Target(e.Spec)) {
+			needsHost = true
+			break
+		}
+	}
+	// Recover older local installs with an empty runtime cache instead of
+	// silently describing an unstarted host as having no usable providers.
+	if needsHost {
 		loaded, err := plugin.Plugins(ctx)
 		if err != nil {
 			s.Error = err.Error()
@@ -154,12 +165,24 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 			errs[p.Spec] = p.Error
 		}
 		clashes = plugin.Clashes(loaded)
-		if ps, err := plugin.Providers(ctx); err == nil {
+		if err == nil {
+			ps, err := plugin.Providers(ctx)
+			if err != nil {
+				s.Error = err.Error()
+			}
 			for _, p := range ps {
 				names[p.Spec] = append(names[p.Spec], p.Name)
 				idName[p.ID] = p.Name
+				id := "plugin:" + provider.PluginID(p.ID)
+				if provider.Moved(p.ID) {
+					id = "subscription:" + p.ID
+				}
+				if !settings.ProviderDiscoveryAllowed(id) {
+					hidden[p.Spec] = append(hidden[p.Spec], p.Name)
+				}
 			}
 		}
+		s.Bun = plugin.HasBun()
 	}
 	// npm's newest, as it said last: asking it again is /api/plugins/npm's
 	known := plugin.InfoCached(npmNames(l.Plugins))
@@ -172,7 +195,10 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 		}
 	}
 	for _, e := range l.Plugins {
-		j := pluginEntryJSON{Entry: e, Error: errs[e.Spec], Providers: names[e.Spec], Version: plugin.Installed(e.Spec)}
+		j := pluginEntryJSON{Entry: e, Error: errs[e.Spec], Providers: names[e.Spec], HiddenProviders: hidden[e.Spec], Version: plugin.Installed(e.Spec)}
+		if j.Error == "" && s.Error != "" && !e.Off && !plugin.InMagpieOnly(plugin.Target(e.Spec)) {
+			j.Error = s.Error
+		}
 		if npmPlugin(e.Spec) {
 			j.Latest = known[plugin.Name(e.Spec)].Version
 		}
@@ -323,6 +349,9 @@ func pluginMarketState(ctx context.Context, w Windows) pluginMarketJSON {
 }
 
 func pluginRoutes(mux *http.ServeMux, w Windows) {
+	mux.HandleFunc("POST /api/plugins/upload", func(rw http.ResponseWriter, r *http.Request) {
+		pluginUpload(rw, r, w)
+	})
 	// the updates waiting for the reader, which put a dot on Plugins
 	mux.HandleFunc("GET /api/plugins/updates", func(rw http.ResponseWriter, r *http.Request) {
 		writeJSON(rw, plugin.PendingUpdates())

@@ -66,12 +66,13 @@ type updater struct {
 }
 
 type updateJSON struct {
-	State   string `json:"state"`
-	Current string `json:"current"`
-	Latest  string `json:"latest,omitempty"`
-	Notes   string `json:"notes,omitempty"`
-	URL     string `json:"url,omitempty"`
-	Stuck   string `json:"stuck,omitempty"` // available: why it can't update itself
+	Policy  *update.Policy `json:"policy,omitempty"`
+	State   string         `json:"state"`
+	Current string         `json:"current"`
+	Latest  string         `json:"latest,omitempty"`
+	Notes   string         `json:"notes,omitempty"`
+	URL     string         `json:"url,omitempty"`
+	Stuck   string         `json:"stuck,omitempty"` // available: why it can't update itself
 	// available, stuck "not-writable": the folder magpie may not write to
 	StuckDir string `json:"stuckDir,omitempty"`
 	Retry    bool   `json:"retry,omitempty"` // error: a click downloads it again
@@ -93,15 +94,20 @@ type updateJSON struct {
 
 var updates = &updater{}
 
+var packageUpdatePolicy = update.CurrentPolicy
+
 // updateDue is whether the feed is asked by itself now, the last time it
 // was asked at last: never with automatic updates off, otherwise once the
 // settings' interval is up. The settings are read again each minute, so
 // one changed (in Settings or the CLI) counts from the last check.
 func updateDue(s settings.Settings, last, now time.Time) bool {
-	return !s.NoAutoUpdate && now.Sub(last) >= time.Duration(s.UpdateEvery)*time.Minute
+	return packageUpdatePolicy().Mode != "manual" && !s.NoAutoUpdate && now.Sub(last) >= time.Duration(s.UpdateEvery)*time.Minute
 }
 
 func (u *updater) start() {
+	if packageUpdatePolicy().Mode == "manual" {
+		return
+	}
 	u.place(runtime.GOOS, update.GUI)
 	go func() {
 		time.Sleep(5 * time.Second) // let the app settle first
@@ -235,6 +241,9 @@ func (u *updater) freshen() {
 // already downloaded checks too: a newer one out since takes its place,
 // so the restart goes straight to the latest.
 func (u *updater) begin() bool {
+	if packageUpdatePolicy().Mode == "manual" {
+		return false
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.state == "checking" || u.state == "downloading" {
@@ -320,6 +329,9 @@ func (u *updater) run() {
 // and a folder that needs one waits for the next restart. A failure keeps
 // the staged version, so the restart can be tried again.
 func (u *updater) install(ask bool) bool {
+	if packageUpdatePolicy().Mode == "manual" {
+		return false
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if u.replaced() {
@@ -387,6 +399,10 @@ func (u *updater) json() updateJSON { return u.jsonIn("") }
 // Notes held in another language are asked for again in lang, at most
 // once a minute; the page's next look has them.
 func (u *updater) jsonIn(lang string) updateJSON {
+	policy := packageUpdatePolicy()
+	if policy.Mode == "manual" {
+		return updateJSON{State: "manual", Current: Version, Policy: &policy}
+	}
 	busy := gatewayBusy()
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -398,6 +414,9 @@ func (u *updater) jsonIn(lang string) updateJSON {
 		}
 	}
 	j := updateJSON{State: u.state, Current: Version, Error: u.err, Retry: u.retry}
+	if policy.DistributionID != "" {
+		j.Policy = &policy
+	}
 	if u.state == "error" {
 		j.Mirror = u.mirror
 	}

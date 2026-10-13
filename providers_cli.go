@@ -17,6 +17,7 @@ import (
 
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -1120,7 +1121,7 @@ func serve() error {
 	// before a change and no codex session is on it
 	go agent.KeepCodexDaemonCurrent(context.Background())
 	public := advertisedURL()
-	fmt.Println(green.Render("●"), "magpie gateway on", bold.Render(gateway.URL()))
+	fmt.Println(green.Render("●"), distribution.Name()+" gateway on", bold.Render(gateway.URL()))
 	fmt.Println(muted.Render("  OpenAI  "), public+"/v1/chat/completions", muted.Render("·"), public+"/v1/responses")
 	fmt.Println(muted.Render("  Anthropic"), public+"/v1/messages")
 	fmt.Println(muted.Render("  key     "), gateway.Token, muted.Render(keyNote()))
@@ -1132,9 +1133,9 @@ func serve() error {
 		fmt.Println(amber.Render("!"), err) // served without it, as no providers
 	}
 	if n == 0 {
-		fmt.Println(amber.Render("!"), "no models yet ·", "magpie provider add deepseek sk-…")
+		fmt.Println(amber.Render("!"), "no models yet ·", distribution.ExecutableName()+" provider add deepseek sk-…")
 	} else {
-		fmt.Printf("  %d models · %s\n", n, muted.Render("magpie models"))
+		fmt.Printf("  %d models · %s\n", n, muted.Render(distribution.ExecutableName()+" models"))
 	}
 	for _, x := range provider.Excluded() {
 		if x.SignedOut {

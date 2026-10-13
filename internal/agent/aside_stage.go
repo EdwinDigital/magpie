@@ -48,7 +48,7 @@ func (c *asideConnection) stage(key, value string) error {
 		had = false
 		owned = asideOwned{}
 	}
-	if p == "magpie" {
+	if p == magpieID {
 		if err := c.connectLocked(); err != nil {
 			return err
 		}

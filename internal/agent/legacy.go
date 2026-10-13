@@ -9,6 +9,7 @@ import (
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // legacyID is what agents knew the gateway by before magpie was called magpie.
@@ -23,6 +24,9 @@ const legacyID = "dial"
 // still fix from the picker.
 func RenameLegacy() {
 	for _, a := range All() {
+		if !settings.AgentDiscoveryAllowed(a.ID) {
+			continue
+		}
 		if _, err := os.Stat(a.Path); err != nil {
 			continue
 		}
@@ -80,6 +84,9 @@ func moveEfforts(pid string, base func(string) (string, string, bool)) {
 		return slices.ContainsFunc(opts, func(o Option) bool { return o.Value == v })
 	}
 	for _, a := range All() {
+		if !settings.AgentDiscoveryAllowed(a.ID) {
+			continue
+		}
 		if _, err := os.Stat(a.Path); err != nil {
 			continue
 		}

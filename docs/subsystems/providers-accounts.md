@@ -1,5 +1,15 @@
 # Providers and accounts
 
+Enterprise [automatic discovery policy](enterprise-client.md#automatic-discovery)
+limits native sign-in discovery by visible provider and source-agent selections,
+except that fixed-default Copilot reads existing native sign-ins independently
+of hidden CLI/editor Agent entries. Hiding those Agents still prevents their
+installation/version/session scanning; the global subscription privacy switch
+continues to deny all Copilot credential/keychain reads. Background model
+discovery is limited by visible provider. The policy retains stored credentials
+and provider settings; it is separate from the global subscription-account switch
+and does not authorize gateway requests.
+
 The gateway can send a request to three kinds of upstream:
 
 - A **provider** in `providers.json`: an endpoint with one or more API keys. Google Vertex AI's has no key: it is signed with the user's Google credentials.
@@ -8,6 +18,12 @@ The gateway can send a request to three kinds of upstream:
 
 Package `internal/provider` holds all three, the routing groups built over
 them, and what is left of each one's allowance.
+
+The enterprise client applies a [Providers-page projection](enterprise-client.md#presentation-contracts)
+without deleting stored provider data, changing routing authorization or
+rewriting credentials. Automatic account/model discovery is separately filtered
+by the effective enterprise policy. Explicit credential readers remain usable.
+Selection IDs distinguish subscriptions, presets, plugins and custom instances.
 
 Plugin ownership of the deprecated built-in subscriptions is in
 [Provider and plugin ownership](provider-plugins.md). How the gateway orders

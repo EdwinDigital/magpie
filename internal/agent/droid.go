@@ -36,7 +36,7 @@ import (
 	"github.com/yetone/magpie/internal/provider"
 )
 
-const (
+var (
 	droidModels = "customModels"
 	droidModel  = "sessionDefaultSettings.model"
 	// droidID is how every id magpie gives a custom model begins

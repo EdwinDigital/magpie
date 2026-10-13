@@ -163,7 +163,7 @@ func ccProviderJSONAt(v1 string) any {
 		}
 		ms[m.ID] = e
 	}
-	return map[string]any{"name": "magpie", "api": "openai-completions", "baseURL": v1, "apiKey": false, "models": ms}
+	return map[string]any{"name": wiringDisplayName(), "api": "openai-completions", "baseURL": v1, "apiKey": false, "models": ms}
 }
 
 // ccEffortMap is settings.json's reasoningEffort, model id to effort.

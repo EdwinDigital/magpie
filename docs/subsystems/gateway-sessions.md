@@ -1,5 +1,12 @@
 # Gateway Session Aggregation
 
+Enterprise [Agent discovery policy](enterprise-client.md#automatic-discovery)
+is applied before enumerating native session/call stores, including GUI startup
+history warm-up, usage statistics and WSL listings. Missing selections never
+trigger those directory/database readers; changing a selection filters an existing
+index on the next read without deleting native files or retained gateway history.
+Explicit access to a known session is not a new authorization boundary.
+
 The Sessions API combines file-backed native sessions with a read-only
 projection of gateway usage records. A gateway session identity is exactly
 `AgentOf(record.Agent) + record.Session`, where the session is the one the

@@ -36,6 +36,47 @@ something else shows up as drift.
 
 ## Constraints and failure behavior
 
+### Package-scoped ownership
+
+[`distribution.WiringID` and `WiringToken`](../../internal/distribution/distribution.go)
+derive immutable external-provider/token namespaces from package identity.
+The public defaults remain `magpie`; enterprise tokens include a delimiter so
+one tenant id cannot match another id's prefix. `magpieID` and adapter-specific
+provider/profile keys are initialized after package loading. Display labels can
+follow the effective application name without changing this ownership identity.
+Codex catalogs are namespace-named, and Desktop profile UUIDs are deterministic
+per package. The plugin API's `project.id == "magpie"` and protocol names stay
+compatible; they are not application display names.
+
+[`ownership.go`](../../internal/agent/ownership.go) supplies `ForeignOwner`, active
+owner readers and write guards. `All` wraps setters, sync, join and follow;
+`Apply`, `ConnectHow`, `Reapply`, `Disconnect` and offline disconnect independently
+guard their public entry paths. A foreign owner's state is not adopted by `Keep`,
+and is not reported as `Wired`. Codex reads the active provider/base, ignoring
+inactive history tables; Desktop reads the applied profile; WorkBuddy recognizes
+only its own namespace/token, including entries edited to vendor `Custom`.
+VS Code keeps independent named provider groups. A switch-off/sync only removes
+or refreshes the current namespace, never all gateway-looking entries.
+
+The native file is still shared. For an exclusive connection, the other client
+must disconnect first; there is no silent takeover or alternate unread config
+folder. A previous enterprise release's shared markers can be converted only
+explicitly, with its private applied record and matching gateway address. Desktop
+conversion retires its old shared-id profile before writing its scoped profile;
+Codex preserves other namespaces' history providers and catalogs. An installed
+older public client does not gain these guards until it is updated, so explicit
+simultaneous editing of a single-gateway Agent by that older client is not a
+supported concurrent workflow.
+
+Verification: `ownership_test.go` covers foreign read-only state/operations,
+WorkBuddy sync/disconnect preservation, loopback aliases, namespace-prefix
+collisions, legacy conversion and Codex history preservation. All fixtures use
+temporary homes and synthetic keys, not the user's running Agents.
+
+- Enterprise [agent selection and automatic discovery](enterprise-client.md#automatic-discovery)
+  rejects hidden agents before detection/CLI/install probes and skips automatic
+  synchronization and startup migrations. Explicit lookups keep their wiring
+  capability; hiding an agent does not disconnect it or delete its files.
 - magpie only removes what it wrote. Anything else in an agent's config stays as it was.
 - A sync brings magpie's models up to date, not where the agent reaches magpie. Every `Sync` that `SyncCatalog` runs (each start and update of magpie, a provider added) goes through `synced`, which passes each file written through `keptAway` (`edit.Filtered`, [`keptaway.go`](../../internal/agent/keptaway.go)). In a file without the gateway's own address, whose magpie the user pointed at an address on another machine (a NAS's, or this machine's LAN address), and with no address a WSL distro was seen at, that address stays in place of `gateway.URL()`, and so does the key that went with it in place of magpie's own (coeo91 on Discord: the base URL went back to 127.0.0.1 after an update or restart). An address on this machine's loopback follows the gateway; with more than one address or key gone, the write is left as it is. Picking a model in magpie still points the agent at this magpie. ZCode and WorkBuddy keep such an address in their own writers too (`zcodeAddress`, `buddyWriteAt`).
 - JetBrains Air's `magpie-opencode.json` keeps user-added fields in `provider.magpie`, including nested options, on sync and model picks (`air` in [`air.go`](../../internal/agent/air.go), using `theirsKept` in [`sync.go`](../../internal/agent/sync.go)). The gateway fields and complete model list are still replaced, so removed models leave the list.

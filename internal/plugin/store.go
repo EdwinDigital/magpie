@@ -48,6 +48,8 @@ type Entry struct {
 	// repository (github:owner/repo, git+https://…) or a path to a file
 	// or folder.
 	Spec string `json:"spec"`
+	// Archive identifies an owned ZIP import, removed with this entry.
+	Archive string `json:"archive,omitempty"`
 	// Off is set on a plugin the user turned off.
 	Off bool `json:"off,omitempty"`
 	// Options are handed to the plugin as its second argument, as
@@ -343,6 +345,10 @@ func Add(ctx context.Context, spec string) (Entry, error) { return add(ctx, spec
 // add is Add, an npm package installed at the version given when there is
 // one (installAt), its spec kept as given.
 func add(ctx context.Context, spec, version string) (Entry, error) {
+	return addEntry(ctx, spec, version, "")
+}
+
+func addEntry(ctx context.Context, spec, version, archive string) (Entry, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
 		return Entry{}, errors.New("no plugin given")
@@ -393,10 +399,17 @@ func add(ctx context.Context, spec, version string) (Entry, error) {
 	if err := ensurePi(ctx, Target(spec)); err != nil {
 		return Entry{}, err
 	}
+	// Local folders and ZIPs bypass bun add, but their provider hooks still
+	// need the host runtime before the installation can be reported ready.
+	if !InMagpieOnly(Target(spec)) {
+		if _, err := Bun(ctx); err != nil {
+			return Entry{}, err
+		}
+	}
 	listMu.Lock()
 	defer listMu.Unlock()
 	l := Load()
-	e := Entry{Spec: spec}
+	e := Entry{Spec: spec, Archive: archive}
 	name := Name(spec)
 	if i := slices.IndexFunc(l.Plugins, func(x Entry) bool {
 		n, ok := was[x.Spec]
@@ -406,6 +419,9 @@ func add(ctx context.Context, spec, version string) (Entry, error) {
 		return x.Spec == spec || n == name
 	}); i >= 0 {
 		e.Options = l.Plugins[i].Options
+		if e.Archive == "" && l.Plugins[i].Spec == spec {
+			e.Archive = l.Plugins[i].Archive
+		}
 		// a provider id the user picked it for stays its (another version,
 		// or its package from a git repository in place of npm's)
 		for id, s := range l.Prefer {
@@ -549,6 +565,7 @@ func Remove(ctx context.Context, name string) error {
 		}
 	}
 	Restart()
+	removeArchive(e)
 	return nil
 }
 

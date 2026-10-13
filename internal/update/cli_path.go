@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/proc"
 )
 
@@ -61,9 +62,10 @@ type cliShell struct {
 
 // What ReadCLI asks the system; tests set them.
 var (
-	cliShellPath = proc.ShellPath
-	cliShells    = installedShells
-	cliExe       = cliProgram
+	cliShellPath    = proc.ShellPath
+	cliShells       = installedShells
+	cliExe          = cliProgram
+	cliDistribution = distribution.ID
 )
 
 var cliMu sync.Mutex
@@ -77,6 +79,11 @@ func ReadCLI() *CLI {
 		return v
 	}
 	v.Exe, v.Stuck = exe, cliStuck()
+	if cliDistribution() != "" {
+		v.Stuck = "enterprise"
+		v.Command = exe
+		return v
+	}
 	if v.Windows && needsShim(exe) {
 		v.Shim = filepath.Join(filepath.Dir(exe), shimName)
 	}
@@ -121,6 +128,9 @@ func ReadCLI() *CLI {
 func AddCLI(shell string) (*CLI, error) {
 	cliMu.Lock()
 	defer cliMu.Unlock()
+	if cliDistribution() != "" {
+		return nil, errors.New("enterprise packages do not replace the shared magpie command; run the enterprise executable by its full path")
+	}
 	exe, err := cliExe()
 	if err != nil {
 		return nil, err

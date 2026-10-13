@@ -9,6 +9,7 @@ import (
 
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/update"
@@ -39,6 +40,12 @@ func stopServing() {
 func startBackend() (gw *gateway.Server) {
 	gateway.Window = true // the routing this process serves is shown on its page
 	gw = serveGateway()
+	if distribution.ID() != "" {
+		if other := gateway.ServedBy(); other.Running && other.DistributionID != distribution.ID() {
+			log.Println("enterprise gateway port belongs to another distribution; choose another port before connecting agents")
+			return nil
+		}
+	}
 	go watchGateway(backendCtx, gatewayWatch)
 	// Codex's background app-server, restarted when it has the list from
 	// before a change and no codex session is on it (luci)
@@ -113,6 +120,10 @@ func serveGatewayLocked() *gateway.Server {
 	// once this one listens beside it
 	if !gateway.Handover {
 		if o := gateway.ServedBy(); o.Running {
+			if distribution.ID() != "" && o.DistributionID != distribution.ID() {
+				log.Println("enterprise gateway port conflict; another distribution is not reused")
+				return nil
+			}
 			if update.Newer(gateway.Version, o.Version) {
 				log.Printf("gateway: magpie %s serves %s, older than this one (%s); agents' requests go through it until it quits", o.Version, gateway.URL(), gateway.Version)
 			}

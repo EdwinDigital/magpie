@@ -92,16 +92,24 @@ async function open(engine, lang, width, t) {
 // click never moves the page, so Playwright's own scroll is put back), then
 // the mouse on it once it holds still
 async function press(page, x) {
-  const d = await x.evaluate((e) => { const v = document.querySelector("#view-routing");
-    return Math.round(e.getBoundingClientRect().top - v.getBoundingClientRect().top - v.clientHeight / 2); });
-  if (Math.abs(d) > 100) {
-    await page.mouse.move(10, 300);
-    await page.mouse.wheel(0, d);
-    await page.waitForTimeout(400);
+  await x.waitFor({ state: "visible" });
+  for (let i = 0; i < 50; i++) {
+    const where = await x.evaluate((e) => {
+      const r = e.getBoundingClientRect(), v = document.querySelector("#view-routing").getBoundingClientRect();
+      const footer = document.querySelector("footer.foot")?.getBoundingClientRect();
+      const bottom = Math.min(v.bottom, innerHeight, footer?.height ? footer.top : innerHeight);
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { ready: r.top >= v.top + 8 && r.bottom <= bottom - 8 && (hit === e || e.contains(hit)), delta: r.top - (v.top + bottom) / 2, x: v.left + 12, y: (v.top + bottom) / 2 };
+    });
+    if (where.ready) break;
+    await page.mouse.move(where.x, where.y);
+    await page.mouse.wheel(0, Math.max(-180, Math.min(180, where.delta || 100)));
+    await page.waitForTimeout(50);
   }
   await page.waitForTimeout(300); // the page settled (WebKit's folds)
-  const b = await x.boundingBox();
-  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  // Re-resolve the control after a responsive fold moves it; stale screen
+  // coordinates can hit the group rather than its Edit action on WebKit.
+  await x.click();
 }
 // nothing in the rules runs past the editor's side
 const overrun = (page) => page.evaluate(() => {

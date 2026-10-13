@@ -16,9 +16,10 @@ import (
 // update.Executable, update.CanElevate and gateway.InContainer; tests stand
 // in for them.
 var (
-	updateExecutable  = update.Executable
-	updateCanElevate  = update.CanElevate
-	updateInContainer = gateway.InContainer
+	updateExecutable    = update.Executable
+	updateCanElevate    = update.CanElevate
+	updateInContainer   = gateway.InContainer
+	updatePackagePolicy = update.CurrentPolicy
 )
 
 // updateEveries are the intervals magpie update auto takes, by their
@@ -29,6 +30,9 @@ var updateEveries = map[string]int{"30m": 30, "1h": 60, "6h": 360, "24h": 1440}
 // the app asks for a newer version (and downloads it) by itself, and how
 // often (#472). With neither, it says how it is set.
 func updateAutoCmd(args []string) error {
+	if updatePackagePolicy().Mode == "manual" {
+		return fmt.Errorf("this enterprise package uses manual updates; download new versions through your enterprise distribution channel")
+	}
 	s := settings.Load()
 	for _, a := range args {
 		switch a {
@@ -65,6 +69,9 @@ func updateAutoCmd(args []string) error {
 // download mirror every update goes through, the app's own among them
 // (settings.UpdateMirror). With nothing, it says which.
 func updateMirrorCmd(args []string) error {
+	if updatePackagePolicy().DistributionID != "" {
+		return fmt.Errorf("enterprise packages use their configured distribution channel, not public GitHub mirrors")
+	}
 	s := settings.Load()
 	if len(args) > 1 {
 		return fmt.Errorf("magpie update mirror takes one prefix, or off")
@@ -161,11 +168,11 @@ func updateCmd(args []string) error {
 		return nil
 	}
 	if !update.Released(version) {
-		return fmt.Errorf("this magpie was built from source; update it the way you built it, or get the release from %s", update.Site)
+		return fmt.Errorf("this magpie was built from source; update it the way you built it, or get the release from %s", updateDownloadSource(updatePackagePolicy(), rel))
 	}
 	if app := update.Bundle(); app != "" {
 		if update.Stuck(app) != "" {
-			return fmt.Errorf("%s can't be replaced where it is; move magpie to Applications, or download the new version from %s", tilde(app), update.Site)
+			return fmt.Errorf("%s can't be replaced where it is; move magpie to Applications, or download the new version from %s", tilde(app), updateDownloadSource(updatePackagePolicy(), rel))
 		}
 		fmt.Println(muted.Render("  downloading " + update.AppAsset() + via(ctx) + " …"))
 		staged, err := update.Stage(ctx, rel, app)
@@ -205,8 +212,21 @@ func updateCmd(args []string) error {
 	return nil
 }
 
+func updateDownloadSource(policy update.Policy, rel *update.Release) string {
+	if policy.DistributionID == "" {
+		return update.Site
+	}
+	if rel.URL != "" {
+		return rel.URL
+	}
+	return "your enterprise distribution channel"
+}
+
 // via says the mirror a download goes through, if any.
 func via(ctx context.Context) string {
+	if updatePackagePolicy().DistributionID != "" {
+		return ""
+	}
 	if m := update.Mirror(ctx); m != "" {
 		return " through " + m
 	}

@@ -39,7 +39,7 @@ type grokLogin struct {
 // first, then the rest as they were added.
 func grokLogins() []grokLogin {
 	own := ""
-	if c, ok := readGrokCredential(GrokHome()); ok {
+	if c, ok := discoveredGrokCredential(); ok {
 		own = c.Email
 	}
 	var out []grokLogin
@@ -214,4 +214,11 @@ func grokUsageAt(ctx context.Context, home string) SubscriptionQuota {
 		q.Error = err.Error()
 	}
 	return q
+}
+
+func discoveredGrokCredential() (grokCredential, bool) {
+	if !localDiscoveryAllowed("grok", "grok") {
+		return grokCredential{}, false
+	}
+	return readGrokCredential(GrokHome())
 }

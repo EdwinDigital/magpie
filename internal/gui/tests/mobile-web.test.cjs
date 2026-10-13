@@ -309,6 +309,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
             for (const view of views) {
               if (view === "agents" && !baselineFile("app.js").includes("function connectPanel")) continue;
               await go(current, view); await go(original, view);
+              // These two surfaces intentionally change in the enterprise client.
+              // Their interactions/layout are exercised by enterprise.test.cjs;
+              // retain the pixel comparison for every unchanged surface.
+              if (view === "plugins") {
+                assert(await current.locator("#view-plugins").evaluate(e => e.firstElementChild.classList.contains("pm-manual")), "plugin install stays first on desktop");
+                continue;
+              }
+              if (view === "settings") {
+                assert(await current.locator("#setTab-enterprise").isVisible(), "enterprise settings remain accessible on desktop");
+                continue;
+              }
               await current.mouse.move(0, 0); await original.mouse.move(0, 0);
               // Removing hover can repaint the tab's shadow in a later frame.
               await current.waitForTimeout(350); await original.waitForTimeout(350);

@@ -17,6 +17,7 @@ import (
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Option is one value the picker offers for a field.
@@ -197,6 +198,9 @@ type Agent struct {
 	// Gateway is the gateway's address as the agent reaches it, a WSL
 	// distro's own way to it; nil is gateway.URL.
 	Gateway func() string
+	// WiringOwner reads the active external configuration's package namespace.
+	// A different owner is read-only until disconnected in its owning client.
+	WiringOwner func() string
 	// Import, for an app that takes magpie only through an import link of
 	// its own, which the user confirms there (Cindy), is that link; the app
 	// has no fields magpie sets. Added says whether it has magpie already.
@@ -228,6 +232,8 @@ type Agent struct {
 	// detect, when set, says whether the agent is here in place of looking
 	// for its files and binary: a distro's, probed once.
 	detect func() bool
+	// expand materializes a descriptor only for an explicit Find, not discovery.
+	expand func() *Agent
 	// reach, when set, is the gateway's address as the agent's config has
 	// it where that is kept apart from Gateway (this machine's Codex at an
 	// address of the user's, #816): Drift tries it (see reach.go).
@@ -263,6 +269,9 @@ func Running(patterns ...string) bool {
 
 // Detected reports whether the agent seems to be installed or configured.
 func (a *Agent) Detected() bool {
+	if !settings.AgentDiscoveryAllowed(a.ID) {
+		return false
+	}
 	if a.detect != nil {
 		return a.detect()
 	}
@@ -420,11 +429,11 @@ func Find(q string) (*Agent, error) {
 	var prefix []*Agent
 	for _, a := range all {
 		if strings.EqualFold(a.ID, q) { // codex@wsl:Ubuntu
-			return a, nil
+			return explicitAgent(a), nil
 		}
 		for _, al := range a.Aliases {
 			if al == q {
-				return a, nil
+				return explicitAgent(a), nil
 			}
 		}
 		if strings.HasPrefix(a.ID, q) || strings.HasPrefix(strings.ToLower(a.Name), q) {
@@ -433,11 +442,18 @@ func Find(q string) (*Agent, error) {
 	}
 	switch len(prefix) {
 	case 1:
-		return prefix[0], nil
+		return explicitAgent(prefix[0]), nil
 	case 0:
 		return nil, fmt.Errorf("unknown agent %q (try: %s)", q, strings.Join(ids(all), ", "))
 	}
 	return nil, fmt.Errorf("%q is ambiguous: %s", q, strings.Join(ids(prefix), ", "))
+}
+
+func explicitAgent(a *Agent) *Agent {
+	if a.expand != nil {
+		return a.expand()
+	}
+	return a
 }
 
 func ids(as []*Agent) []string {

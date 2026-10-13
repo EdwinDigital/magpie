@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yetone/magpie/internal/distribution"
 	"os"
 	"slices"
 	"strings"
@@ -132,6 +133,7 @@ var (
 )
 
 func main() {
+	version = distribution.PackageVersion(version)
 	// before anything reads or writes a file: no home, or a relative one,
 	// would put the agents' configs and magpie's keys under the working
 	// folder. What needs no file still answers (magpie version in a
@@ -141,19 +143,19 @@ func main() {
 		if len(os.Args) > 1 {
 			switch os.Args[1] {
 			case "-v", "--version", "version":
-				fmt.Println("magpie", version)
+				fmt.Println(distribution.Name(), version)
 				return
 			case "-h", "--help", "help":
-				fmt.Print(usage)
+				fmt.Print(distribution.CLIHelp(usage))
 				return
 			}
 		}
-		fmt.Fprintln(os.Stderr, "magpie:", err)
+		fmt.Fprintln(os.Stderr, distribution.ExecutableName()+":", distribution.CLIHelp(err.Error()))
 		os.Exit(1)
 	}
 	slices.Sort(ignored)
 	for _, v := range ignored {
-		fmt.Fprintf(os.Stderr, "magpie: ignoring %s: not an absolute path (the programs magpie starts still get it)\n", v)
+		fmt.Fprintf(os.Stderr, "%s: ignoring %s: not an absolute path (child programs still get it)\n", distribution.ExecutableName(), v)
 	}
 	if provider.TookOpenedURL(os.Args[1:]) {
 		// Claude Code, signing in for magpie, handed over the page to open
@@ -174,7 +176,7 @@ func main() {
 			code = e.code
 		}
 		if msg := err.Error(); msg != "" {
-			fmt.Fprintln(os.Stderr, "magpie:", msg)
+			fmt.Fprintln(os.Stderr, distribution.ExecutableName()+":", distribution.CLIHelp(msg))
 		}
 		os.Exit(code)
 	}
@@ -193,7 +195,7 @@ func run(args []string) error {
 	// before anything is read, moved or started: --help on any command
 	// prints its usage and does nothing else
 	if helpAsked(args) {
-		fmt.Println(strings.TrimRight(helpFor(args), "\n"))
+		fmt.Println(strings.TrimRight(distribution.CLIHelp(helpFor(args)), "\n"))
 		return nil
 	}
 	if len(args) > 0 && args[0] == "healthcheck" {
@@ -254,7 +256,7 @@ func run(args []string) error {
 	}
 	// a magpie:// link the system handed over (Windows, Linux): the app
 	// opens it for the user to confirm
-	if strings.HasPrefix(strings.ToLower(args[0]), "magpie:") {
+	if strings.HasPrefix(strings.ToLower(args[0]), "magpie:") || strings.HasPrefix(strings.ToLower(args[0]), distribution.Scheme()+":") {
 		if !hasGUI {
 			return importCmd(args)
 		}
@@ -284,10 +286,10 @@ func run(args []string) error {
 	case "autostart":
 		return autostartCmd(args[1:])
 	case "-h", "--help", "help":
-		fmt.Print(usage)
+		fmt.Print(distribution.CLIHelp(usage))
 		return nil
 	case "-v", "--version", "version":
-		fmt.Println("magpie", version)
+		fmt.Println(distribution.Name(), version)
 		return nil
 	case "ls", "list":
 		// in the order the app lists them; those hidden there come last, dimmed

@@ -146,7 +146,7 @@ func asideOwnOptions(path, cur string) []Option {
 	sort.Strings(names)
 	for _, p := range names {
 		v := s.Providers[p]
-		if p == "magpie" {
+		if p == magpieID {
 			continue
 		}
 		for _, m := range v.Models {
@@ -256,7 +256,7 @@ func (c *asideConnection) load() (asideRecord, error) {
 		}
 		value, ok := legacy[c.at.key(name)]
 		p, m, valid := strings.Cut(value, "/")
-		if !ok || !valid || p == "" || m == "" || p == "magpie" {
+		if !ok || !valid || p == "" || m == "" || p == magpieID {
 			continue
 		}
 		raw, _ := edit.GetJSON(c.path, asideFieldPath(key))
@@ -453,7 +453,7 @@ func (c *asideConnection) validateSelection(key, value string) (string, error) {
 	if !ok || p == "" || m == "" {
 		return "", fmt.Errorf("expected provider/model")
 	}
-	if key == "image" && p == "magpie" && !asideImageOffered(value) {
+	if key == "image" && p == magpieID && !asideImageOffered(value) {
 		return "", fmt.Errorf("%s is not an image generation model", value)
 	}
 	return value, nil

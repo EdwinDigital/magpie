@@ -33,6 +33,7 @@ import (
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/autostart"
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/filememo"
 	"github.com/yetone/magpie/internal/fonts"
 	"github.com/yetone/magpie/internal/fx"
@@ -175,11 +176,13 @@ type fieldJSON struct {
 }
 
 type agentJSON struct {
-	ID     string      `json:"id"`
-	Name   string      `json:"name"`
-	Icon   string      `json:"icon"`
-	Path   string      `json:"path"`
-	Fields []fieldJSON `json:"fields"`
+	ID           string      `json:"id"`
+	Name         string      `json:"name"`
+	Icon         string      `json:"icon"`
+	Path         string      `json:"path"`
+	Fields       []fieldJSON `json:"fields"`
+	WiringID     string      `json:"wiringId,omitempty"`
+	ForeignOwner string      `json:"foreignOwner,omitempty"`
 	// Drift: its config no longer does what magpie set, and how to set it again
 	Drift *agent.Drift `json:"drift,omitempty"`
 	// Wired: magpie is in its config, which its menu's Disconnect takes out
@@ -640,7 +643,7 @@ func revalidated(next http.Handler) http.Handler {
 			return
 		}
 		if r.URL.Path == "/" {
-			b = versionedPage(b)
+			b = enterpriseHTML(versionedPage(b))
 		}
 		sum := sha256.Sum256(b)
 		rw.Header().Set("ETag", `"`+hex.EncodeToString(sum[:12])+`"`)
@@ -700,6 +703,8 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		// and the text size, which the Mac's header measures against the
 		// traffic lights
 		boot := map[string]any{"lang": s.Lang, "theme": s.Theme, "textSize": s.TextSize, "web": isWeb(w)}
+		boot["enterprise"] = enterpriseState()
+		boot["cliName"] = distribution.ExecutableName()
 		if !isWeb(w) {
 			boot["uiFont"], boot["codeFont"] = s.UIFont, s.CodeFont
 		}
@@ -727,6 +732,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		writeJSON(rw, nil)
 	})
 	omarchyRoutes(mux, w)
+	enterpriseRoutes(mux, w)
 	fontRoutes(mux, isWeb(w) || !fonts.Available, fonts.List)
 	mux.HandleFunc("GET /api/state", func(rw http.ResponseWriter, r *http.Request) {
 		// the panel and its model picker load from here: an account still
@@ -1150,6 +1156,9 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		// the tray menu follows the page's language (#301)
 		if in.Lang != cur.Lang && onLang != nil {
 			onLang()
+		}
+		if in.Theme != cur.Theme && onEnterprise != nil && settings.ResolveEnterprise(settings.Load()).LogoAsset != "" {
+			onEnterprise()
 		}
 		// an update check that failed, without the proxy set just now, is
 		// tried again through it, not in six hours (#294)
@@ -1805,7 +1814,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 	})
 	agentModelsAPI(mux)
 	devListen(mux)
-	return held(mux)
+	return enterpriseGuard(held(mux))
 }
 
 // held has a page's reads share one build of the catalog, which every row
@@ -1850,7 +1859,7 @@ func state() stateJSON {
 			_ = a.Follow()
 		}
 		vals := a.Values()
-		aj := agentJSON{ID: a.ID, Name: a.Name, Icon: a.Icon, Path: tilde(a.Path), Fields: agentFields(a, vals)}
+		aj := agentJSON{ID: a.ID, Name: a.Name, Icon: a.Icon, Path: tilde(a.Path), Fields: agentFields(a, vals), WiringID: distribution.WiringID(), ForeignOwner: a.ForeignOwner()}
 		aj.Models = agentModelCount(a, aj.Fields)
 		aj.Menu = a.ListsModels
 		aj.Drift = a.Drift()

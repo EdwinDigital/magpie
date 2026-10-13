@@ -286,7 +286,7 @@ func wbSavedCreds(l savedLogin) (wbCreds, bool) {
 
 // wbLogins is every account of w signed in, the first in use first.
 func wbLogins(w *wbSite) []wbAccount {
-	ownUser, own, hasOwn := wbOwn(w)
+	ownUser, own, hasOwn := wbOwnDiscovered(w)
 	if !hasOwn {
 		ownUser = ""
 	}
@@ -959,4 +959,12 @@ func wbPoll(ctx context.Context, w *wbSite, deadline time.Time, path string, hea
 		fail("WorkBuddy sign-in: " + err.Error())
 		return nil, false
 	}
+}
+
+// wbOwnDiscovered checks visibility before borrowing another application's login.
+func wbOwnDiscovered(w *wbSite) (string, wbCreds, bool) {
+	if !localDiscoveryAllowed(w.id, w.id) {
+		return "", wbCreds{}, false
+	}
+	return wbOwn(w)
 }

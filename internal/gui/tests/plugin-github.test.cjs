@@ -109,11 +109,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const view = page.locator("#view-plugins");
           await view.waitFor({ state: "visible" });
 
-          // a section of their own, after the community's, before the field
+          // A section of their own after the community's; installation is
+          // persistent and first, independently of discovery sections.
           const sec = view.locator(".pm-sec", { has: page.locator("h3", { hasText: w.section }) });
           await sec.waitFor();
-          const order = await view.locator(".pm-body > *").evaluateAll((es) => es.map((e) => e.className.split(" ")[0]));
-          assert.ok(order.indexOf("pm-manual") > order.lastIndexOf("pm-sec"), "the field stays last: " + order);
+          assert.equal(await view.evaluate(e => e.firstElementChild.classList.contains("pm-manual")), true, "installation stays first");
           assert.match(await sec.locator(".pm-sechead span").innerText(), /magpie-plugin/);
           const cards = sec.locator(".pm-card");
           assert.deepEqual(await cards.locator(".pm-name b").allInnerTexts(), ["opencode-claude-auth", "opencode-quota", "agy-staff"], "the market's own package is its card alone");

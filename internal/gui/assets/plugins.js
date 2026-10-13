@@ -78,6 +78,7 @@
   const gitBehind = (e) => isGit(e.spec) && !!e.commit && !!e.head && !sameCommit(e.commit, e.head);
   // the providers a plugin signs in to, as the add sheet knows them
   const subsOf = (pkg) => (providers?.plugins || []).filter((x) => name(x.spec) === pkg);
+  const supplierPolicyID = x => movedSub(x.pid || x.id || x.agent) ? "subscription:" + (x.pid || x.id || x.agent) : "plugin:" + (x.id || x.agent);
   // whether version a comes after b, in semver's order, the same as
   // update.Newer, which puts the dot on Plugins: a pre-release before its
   // release, numbers in it as numbers ("beta.10" after "beta.9"), a number
@@ -158,6 +159,7 @@
   async function loadTagged() {
     try {
       const r = await api("plugins/github");
+      if (!catalogOpen()) return;
       tagged = (r.repos || []).map(ghListing);
       if (r.topic) topic = r.topic;
     } catch { tagged = tagged || []; }
@@ -165,6 +167,7 @@
   async function loadListings() {
     try {
       const r = await api("plugins/listings");
+      if (!catalogOpen()) return;
       listings = r.listings || [];
       failedList = "";
     } catch (e) {
@@ -175,7 +178,7 @@
   // what npm says of the plugins suggested and those installed: drawn
   // when it comes, never waited on
   async function askNPM(only) {
-    const names = [...new Set([...(listings || []).map((l) => l.package), ...(mine?.plugins || []).filter((e) => onNPM(e.spec)).map((e) => name(e.spec))])]
+    const names = [...new Set([...(catalogOpen() ? listings || [] : []).map((l) => l.package), ...(mine?.plugins || []).filter((e) => onNPM(e.spec)).map((e) => name(e.spec))])]
       .filter((n) => !only || !npm[n]);
     if (!names.length) return;
     try {
@@ -200,12 +203,14 @@
     drawBody();
   }
 
+  const catalogOpen = () => window.enterpriseUI?.catalog() !== false;
   async function load() {
+    if (!catalogOpen()) { tab = "installed"; query = ""; clearTimeout(searchTimer); listings = []; tagged = []; hits = null; }
     if (!mine && !listings) draw();
     const parts = [
       loadMine().then(() => { draw(); window.renderPluginDot?.(); }),
-      loadListings().then(draw),
-      loadTagged().then(drawBody),
+      catalogOpen() ? loadListings().then(draw) : null,
+      catalogOpen() ? loadTagged().then(drawBody) : null,
       providers ? null : loadProviders().then(drawBody, () => {}),
     ];
     await Promise.all(parts);
@@ -215,6 +220,7 @@
   window.loadPlugins = load;
   // pluginQuery: Discover, looking for q (the add sheet found nothing by it)
   window.pluginQuery = (q) => {
+    if (!catalogOpen()) { tab = "installed"; draw(); return; }
     if (q === query && !q) return;
     query = q;
     tab = "discover";
@@ -350,7 +356,7 @@
     return b;
   };
   const install = (pkg, nm) => act(pkg, "add", { spec: pkg }, () => {
-    const subs = subsOf(pkg);
+    const subs = subsOf(pkg).filter((x) => window.enterpriseUI?.allow(supplierPolicyID(x)) !== false);
     status(subs.length ? t("{name} is installed — sign in to use it", { name: nm }) : t("{name} is installed", { name: nm }), "ok");
   });
 
@@ -558,7 +564,7 @@
 
   function head() {
     const n = mine?.plugins?.length || 0;
-    const tabs = segs([["discover", t("Discover")], ["installed", t("Installed") + (n ? " · " + n : "")]], tab, (id) => {
+    const tabs = segs([...(catalogOpen() ? [["discover", t("Discover")]] : []), ["installed", t("Installed") + (n ? " · " + n : "")]], tab, (id) => {
       tab = id;
       try { localStorage.setItem("magpie.pluginTab", id); } catch {}
       drawBody();
@@ -567,6 +573,7 @@
     q.placeholder = t("Search plugins and npm…");
     if (q.value !== query) q.value = query;
     q.setAttribute("aria-label", t("Search plugins"));
+    find.hidden = !catalogOpen();
     replaceKeeping(headBox, [tabs, el("span", "grow"), mirrorSwitch(), find]);
     headBox.classList.toggle("stuck", page.scrollTop > 0);
     return headBox;
@@ -609,22 +616,48 @@
   }
 
   async function searchNPM(s) {
+    if (!catalogOpen()) return;
     try {
       const r = await api("plugins/search?q=" + encodeURIComponent(s));
       if (hits?.q === s) hits = { q: s, list: r.hits };
     } catch (e) {
       if (hits?.q === s) hits = { q: s, error: e.message };
     }
+    if (!catalogOpen()) { hits = null; return; }
     if (hits?.q === s) drawBody();
   }
 
   page.addEventListener("scroll", () => page.querySelector(".pm-head")?.classList.toggle("stuck", page.scrollTop > 0), { passive: true });
 
-  let body = null;
+  let body = null, manualBox = null;
+  window.redrawEnterprisePlugins = () => { if (!catalogOpen()) { tab = "installed"; clearTimeout(searchTimer); query = ""; hits = null; listings = []; tagged = []; } if (body) load(); };
   function draw() {
     const scroll = page.scrollTop;
     body = el("div", "lib-body pm-body");
-    replaceKeeping(page, [head(), body]);
+    if (!manualBox) manualBox = manual();
+    const spec = manualBox.querySelector(".pm-minput"), go = manualBox.querySelector('button[type="submit"]');
+    go.disabled = busy.size > 0;
+    go.textContent = t(busy.has("+") ? "Installing…" : "Install");
+    spec.disabled = busy.has("+");
+    spec.placeholder = t("npm package, GitHub repo (github:owner/repo) or a folder");
+    spec.setAttribute("aria-label", t("Plugin"));
+    manualBox.querySelector(".pm-mlabel").textContent = t("Have one in mind?");
+    const upload = manualBox.querySelector(".pm-upload");
+    upload.disabled = busy.size > 0;
+    upload.textContent = t("Upload ZIP");
+    upload.title = t("Ready-to-load plugin ZIP, at most 32 MiB. Include package.json and built files. Only install plugins you trust.");
+    manualBox.querySelector(".pm-zip-note").textContent = upload.title;
+    manualBox.querySelector('input[type="file"]').disabled = busy.size > 0;
+    manualBox.setAttribute("aria-busy", String(busy.has("+")));
+    let picker = manualBox.querySelector(".pm-browse");
+    if (mine?.picker && !picker) { picker = browse(spec, go); manualBox.insertBefore(picker, go); }
+    if (!mine?.picker && picker) picker.remove();
+    if (picker && mine?.picker) {
+      picker.disabled = busy.size > 0 || spec.disabled;
+      picker.title = t("Choose a folder on this computer");
+      picker.setAttribute("aria-label", t("Choose a folder"));
+    }
+    replaceKeeping(page, [manualBox, head(), body]);
     drawBody();
     page.scrollTop = scroll;
   }
@@ -636,7 +669,7 @@
     shown = key;
     body.replaceChildren();
     // the search field keeps its focus: only the body is redrawn while typing
-    if (tab === "installed") return drawInstalled();
+    if (!catalogOpen() || tab === "installed") return drawInstalled();
     if (failedList && !listings) {
       body.append(el("p", "pm-empty", t("Couldn't load the plugins: {error}", { error: failedList })));
       return;
@@ -661,7 +694,7 @@
       if (mws.length) body.append(section(t("Gateway middleware"), t("runs in magpie's gateway on what every agent sends and gets back, whichever provider serves it"), mws));
       if (ags.length) body.append(section(t("Agents"), t("agents magpie has no setup of its own for, connected to it as its own are"), ags));
       if (gh.length) body.append(section(t("Unofficial, on GitHub"), t("repositories their authors tagged {topic} — nobody has reviewed them; read the code before you install one", { topic }), gh));
-      body.append(manual());
+
       return;
     }
     if (ls.length) body.append(section(t("Suggested"), "", ls));
@@ -732,6 +765,29 @@
     // picker (`magpie web` can't, and the market says so)
     if (mine?.picker) box.append(browse(spec, go));
     box.append(go);
+    const zip = el("input");
+    zip.type = "file";
+    zip.name = "archive";
+    zip.accept = ".zip,application/zip,application/x-zip-compressed";
+    zip.hidden = true;
+    const upload = el("button", "text pm-upload", t("Upload ZIP"));
+    upload.type = "button";
+    upload.setAttribute("aria-describedby", "plugin-zip-help");
+    upload.onclick = () => { if (!busy.size) zip.click(); };
+    zip.onchange = async () => {
+      const file = zip.files?.[0];
+      zip.value = "";
+      if (!file || busy.size) return;
+      if (!/\.zip$/i.test(file.name)) { status(t("Choose a .zip plugin archive"), "err"); return; }
+      if (file.size > 32 * 1024 * 1024) { status(t("Plugin ZIP must be at most 32 MiB"), "err"); return; }
+      const data = new FormData();
+      data.append("archive", file);
+      await act("+", "upload", data, () => status(t("{name} is installed", { name: file.name }), "ok"));
+      upload.focus();
+    };
+    const note = el("span", "pm-note pm-zip-note");
+    note.id = "plugin-zip-help";
+    box.append(zip, upload, note);
     return box;
   }
 
@@ -770,10 +826,10 @@
     const es = mine.plugins || [];
     if (!es.length) {
       const none = el("div", "pm-none");
-      none.append(logo("", true), el("b", "", t("No plugins yet")), el("p", "", t("Install a subscription or a middleware from Discover; a subscription signs in from here.")));
+      none.append(logo("", true), el("b", "", t("No plugins yet")), el("p", "", catalogOpen() ? t("Install a subscription or a middleware from Discover; a subscription signs in from here.") : t("Install a plugin using the entry above.")));
       const b = el("button", "pm-act get", t("Discover plugins"));
       b.onclick = () => { tab = "discover"; draw(); };
-      none.append(b);
+      if (catalogOpen()) none.append(b);
       body.append(none);
       return;
     }
@@ -910,6 +966,10 @@
       // its own line below says whose it is
     } else sub.textContent = e.providers.length ? t("Signs in to {names}", { names: e.providers.join(t(", ")) }) : t("Signs in to nothing magpie can use");
     if (sub.textContent) who.append(sub);
+    const hiddenProviders = subs.length ? subs.filter(x => window.enterpriseUI?.allow(supplierPolicyID(x)) === false).map(x => x.name) : e.hiddenProviders;
+    if (!e.off && !e.error && hiddenProviders?.length) {
+      who.append(el("div", "pm-note", t("Hidden in enterprise settings: {names}. Select them under Enterprise configuration → Visible providers.", { names: hiddenProviders.join(t(", ")) })));
+    }
     if (!ask) for (const c of clashes) who.append(clashLine(e, c, nameOfSpec));
     if (mw && !e.off && !ask) who.append(mwLine(mw));
     if (ag && !e.off && !ask) who.append(agentLine(ag));

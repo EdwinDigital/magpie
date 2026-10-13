@@ -44,7 +44,7 @@ import (
 )
 
 // snowProfile is the name of the profile magpie writes.
-const snowProfile = magpieID
+var snowProfile = magpieID
 
 // snowContext and snowOutput are what Snow is told of a model whose limits
 // magpie doesn't know: its own defaults.

@@ -33,12 +33,10 @@
   wires.setAttribute("aria-hidden", "true");
   const srcs = el("div", "rt-srcs"); // an agent's node each
   const hub = el("div", "rt-node rt-hub");
-  const logo = document.createElementNS(NS, "svg");
-  logo.setAttribute("viewBox", "0 0 44 44");
-  logo.setAttribute("class", "rt-bird");
-  logo.innerHTML = '<use href="#bird"/>';
+  const logo = icon("magpie");
+  logo.classList.add("rt-bird");
   const hubSub = el("small"), chip = el("i");
-  hub.append(logo, el("b", "", "magpie"), hubSub, chip);
+  hub.append(logo, window.enterpriseUI.nameNode("b"), hubSub, chip);
   const list = el("ol", "rt-accts");
   // the magpies fly over the nodes, the wires run under them
   const sky = document.createElementNS(NS, "svg");
@@ -2458,7 +2456,7 @@
     + "</g></g>";
 
   function bird(kind) {
-    if (still() || !shown()) return null;
+    if (still() || !shown() || window.enterpriseUI?.birdMotion?.() === false) return null;
     const g = document.createElementNS(NS, "g");
     g.setAttribute("class", "rt-flier " + kind);
     g.innerHTML = FLIER;
@@ -4592,7 +4590,15 @@
   pWires.setAttribute("class", "ps-wires");
   pSky.setAttribute("class", "ps-sky");
   const pFrom = el("div", "ps-col ps-from"), pTo = el("div", "ps-col ps-to"), pHub = el("div", "ps-hub");
-  pHub.innerHTML = '<svg viewBox="0 0 44 44" aria-hidden="true"><use href="#bird"/></svg>';
+  pHub.append(icon("magpie"));
+  window.refreshRoutingBrand = () => {
+    const current = icon("magpie");
+    logo.replaceChildren(...current.childNodes);
+    pHub.replaceChildren(icon("magpie"));
+    if (window.enterpriseUI?.birdMotion?.() === false) {
+      for (const trip of trips) { trip.bird?.remove(); trip.bird = null; }
+    }
+  };
   pStage.append(pWires, pFrom, pHub, pTo, pSky);
   pStage.setAttribute("aria-hidden", "true");
   let pAg = [], pDst = [];          // the keys on the stage, in their places

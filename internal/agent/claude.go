@@ -1337,6 +1337,24 @@ func claudeIn(at place) *Agent {
 	var self *Agent
 	self = &Agent{
 		ID: "claude", Name: "Claude Code", Icon: "claudecode-color", Aliases: []string{"cc", "claude-code"},
+		WiringOwner: func() string {
+			if owner := keyOwner(env("ANTHROPIC_AUTH_TOKEN")); owner != "" {
+				if owner == "magpie" && ownedLegacyWiring("claude", env("ANTHROPIC_BASE_URL")) {
+					return magpieID
+				}
+				return owner
+			}
+			if keyOurs() {
+				return magpieID
+			}
+			if magpieID != "magpie" {
+				if ownedLegacyWiring("claude", env("ANTHROPIC_BASE_URL")) {
+					return magpieID
+				}
+				return endpointOwner(env("ANTHROPIC_BASE_URL"), at.gw())
+			}
+			return ""
+		},
 		UA:  []string{"claude-cli", "claude-code"},
 		Bin: "claude", Dir: filepath.Dir(path), Path: path,
 		Fields: fields,

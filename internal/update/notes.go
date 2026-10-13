@@ -11,6 +11,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/yetone/magpie/internal/distribution"
 )
 
 // Note is one release's notes, as the app shows them after an update.
@@ -23,6 +25,9 @@ type Note struct {
 // NotesFeed is where the notes of past releases are listed: beside the
 // update feed, on magpie's site. MAGPIE_NOTES_FEED points it elsewhere.
 func NotesFeed() string {
+	if distribution.ID() != "" {
+		return Feed()
+	}
 	if f := os.Getenv("MAGPIE_NOTES_FEED"); f != "" {
 		return f
 	}
@@ -32,6 +37,9 @@ func NotesFeed() string {
 // ReleasePage is version's page on GitHub, where its notes are when the
 // site can't give them (#661).
 func ReleasePage(version string) string {
+	if distribution.ID() != "" {
+		return Feed()
+	}
 	return "https://github.com/yetone/magpie-releases/releases/tag/v" + strings.TrimPrefix(strings.TrimSpace(version), "v")
 }
 
@@ -39,6 +47,13 @@ func ReleasePage(version string) string {
 // (none when "") up to and including upto, newest first, in lang (see
 // InLang).
 func NotesBetween(ctx context.Context, after, upto, lang string) ([]Note, error) {
+	if distribution.ID() != "" {
+		release, err := LatestIn(ctx, lang)
+		if err != nil {
+			return nil, err
+		}
+		return Between([]Note{{Version: release.Version, Notes: release.Notes, URL: release.URL}}, after, upto), nil
+	}
 	q := url.Values{"upto": {upto}}
 	if after != "" {
 		q.Set("after", after)

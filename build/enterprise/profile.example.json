@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "tenantId": "acme",
+  "distributionId": "acme-assistant",
+  "profileRevision": 1,
+  "brand": { "displayName": "Acme Assistant", "companyName": "Acme", "logoAsset": "" },
+  "identity": {
+    "macBundleId": "com.acme.assistant",
+    "windowsAppId": "com.acme.assistant",
+    "artifactSlug": "acme-assistant",
+    "urlScheme": "acme-assistant"
+  },
+  "enterpriseDefaults": {
+    "visibleAgents": ["codex", "claude", "claude-desktop", "vscode", "copilot", "workbuddy"],
+    "visibleProviders": [],
+    "showPluginProviderEntry": false,
+    "showCustomProviderEntry": false,
+    "publicPluginCatalog": false,
+    "libraryEnabled": false
+  },
+  "updates": { "mode": "manual", "channel": "stable", "feedUrl": "", "manifestKeys": {} }
+}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/desktopdir"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Call is one model call as an agent's own session file records it.
@@ -203,15 +204,19 @@ func callFiles() []file {
 			}
 		}
 	}
-	add(ccFiles("claude", ClaudeDir()))
-	for _, d := range callDesktopDirs() {
-		// Cowork keeps a Claude Code folder of its own for each session
-		homes, _ := SessionGlob(filepath.Join(d, "local-agent-mode-sessions", "*", "*", "local_*", ".claude"))
-		for _, h := range homes {
-			add(ccFiles("claude-desktop", h))
+	if settings.AgentDiscoveryAllowed("claude") {
+		add(ccFiles("claude", ClaudeDir()))
+	}
+	if settings.AgentDiscoveryAllowed("claude-desktop") {
+		for _, d := range callDesktopDirs() {
+			// Cowork keeps a Claude Code folder of its own for each session
+			homes, _ := SessionGlob(filepath.Join(d, "local-agent-mode-sessions", "*", "*", "local_*", ".claude"))
+			for _, h := range homes {
+				add(ccFiles("claude-desktop", h))
+			}
 		}
 	}
-	add(codexFiles())
+	add(selectedFiles("codex", codexFiles))
 	add(wslFiles("claude", "codex"))
 	return out
 }
@@ -224,10 +229,10 @@ func callFiles() []file {
 // on. Every agent here needs an entry in wholeCallReaders.
 func callSources() []file {
 	out := callFiles()
-	out = append(out, openCodeCallFiles()...)
-	out = append(out, zcodeCallFiles()...)
-	out = append(out, dshCallFiles()...)
-	return append(out, workbuddyCallFiles()...)
+	out = append(out, selectedFiles("opencode", openCodeCallFiles)...)
+	out = append(out, selectedFiles("zcode", zcodeCallFiles)...)
+	out = append(out, selectedFiles("dsh", dshCallFiles)...)
+	return append(out, selectedFiles("workbuddy", workbuddyCallFiles)...)
 }
 
 // desktopDataDirs are Claude Desktop's folders on this computer that

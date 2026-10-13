@@ -11,6 +11,7 @@ import (
 
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,6 +47,9 @@ func SyncCatalog() {
 		// look-up of each (thousands at magpie's start, with 30 providers)
 		release := provider.Hold()
 		for _, a := range All() {
+			if !settings.AgentDiscoveryAllowed(a.ID) {
+				continue
+			}
 			if a.Sync != nil {
 				_ = synced(a.Sync)
 			}

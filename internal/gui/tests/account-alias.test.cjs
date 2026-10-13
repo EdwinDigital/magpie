@@ -113,7 +113,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
         // a click types a name in place, the seat as its hint; nothing moves
         const b = team.locator(".n.rename");
-        await b.scrollIntoViewIfNeeded();
+        // Account refreshes can replace this row while it scrolls. A trial
+        // click re-resolves the live row without triggering the rename.
+        await b.click({ trial: true });
         await page.waitForTimeout(150);
         const top = await row(TEAM).evaluate((e) => Math.round(e.getBoundingClientRect().top)), sc = await scrolled(page);
         await b.click();

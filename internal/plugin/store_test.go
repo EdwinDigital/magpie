@@ -239,6 +239,7 @@ func TestLoadPerConfigDir(t *testing.T) {
 // add, off and remove work under it.
 func TestLoadConcurrentWithSavesAndEdits(t *testing.T) {
 	dir := storeSandbox(t)
+	t.Setenv("MAGPIE_BUN", filepath.Join(dir, "runtime-not-executed"))
 	writeList(t, `{"plugins":[{"spec":"p0"}]}`)
 	plug := filepath.Join(dir, "plug.mjs")
 	if err := os.WriteFile(plug, []byte("// a plugin\n"), 0o600); err != nil {

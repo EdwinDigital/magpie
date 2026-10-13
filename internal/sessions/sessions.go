@@ -426,12 +426,28 @@ func ccFiles(agent, dir string) []file {
 }
 
 // allFiles are every agent's session files.
+// selectedFiles stops discovery before a reader enumerates another agent's store.
+func selectedFiles(id string, list func() []file) []file {
+	if !settings.AgentDiscoveryAllowed(id) {
+		return nil
+	}
+	return list()
+}
+
 func allFiles() []file {
-	var out []file
-	for _, fs := range [][]file{callFiles(), openCodeFiles(), piFiles(),
-		wslFiles("pi"), zcodeFiles(), dshFiles(), clineFiles(), ccFiles("qoder", QoderDir("qoder")), ccFiles("qoder-cn", QoderDir("qoder-cn")),
-		grokFiles(), workbuddyFiles(), droidFiles(), ompFiles(), cursorFiles(), hermesFiles(), almaFiles()} {
-		out = append(out, fs...)
+	out := callFiles()
+	for _, source := range []struct {
+		id   string
+		list func() []file
+	}{
+		{"opencode", openCodeFiles}, {"pi", piFiles}, {"pi", func() []file { return wslFiles("pi") }},
+		{"zcode", zcodeFiles}, {"dsh", dshFiles}, {"cline", clineFiles},
+		{"qoder", func() []file { return ccFiles("qoder", QoderDir("qoder")) }},
+		{"qoder-cn", func() []file { return ccFiles("qoder-cn", QoderDir("qoder-cn")) }},
+		{"grok", grokFiles}, {"workbuddy", workbuddyFiles}, {"droid", droidFiles},
+		{"omp", ompFiles}, {"cursor", cursorFiles}, {"hermes", hermesFiles}, {"alma", almaFiles},
+	} {
+		out = append(out, selectedFiles(source.id, source.list)...)
 	}
 	return out
 }
@@ -439,29 +455,43 @@ func allFiles() []file {
 // Dirs are the folders the sessions are read from: Claude Code's and
 // Codex's, and the other agents' where they keep sessions on this computer.
 func Dirs() []string {
-	out := []string{ClaudeDir(), CodexDir()}
-	for _, d := range []struct{ dir, sessions string }{
-		{OpenCodeDir(), OpenCodeDir()},
-		{PiDir(), PiDir()},
-		{ZCodeDir(), zcodeDB()},
-		{DshDir(), filepath.Join(DshDir(), "sessions")},
-		{ClineSessionDir(), ClineSessionDir()},
-		{QoderDir("qoder"), filepath.Join(QoderDir("qoder"), "projects")},
-		{QoderDir("qoder-cn"), filepath.Join(QoderDir("qoder-cn"), "projects")},
-		{GrokDir(), filepath.Join(GrokDir(), "sessions")},
-		{WorkBuddyDir(), filepath.Join(WorkBuddyDir(), "projects")},
-		{OmpDir(), filepath.Join(OmpDir(), "sessions")},
-		{FactoryDir(), filepath.Join(FactoryDir(), "sessions")},
-		{CursorDir(), filepath.Join(CursorDir(), "chats")},
-		{AlmaDir(), almaDB()},
+	var out []string
+	if settings.AgentDiscoveryAllowed("claude") {
+		out = append(out, ClaudeDir())
+	}
+	if settings.AgentDiscoveryAllowed("codex") {
+		out = append(out, CodexDir())
+	}
+	for _, source := range []struct {
+		id   string
+		dirs func() (string, string)
+	}{
+		{"opencode", func() (string, string) { return OpenCodeDir(), OpenCodeDir() }},
+		{"pi", func() (string, string) { return PiDir(), PiDir() }},
+		{"zcode", func() (string, string) { return ZCodeDir(), zcodeDB() }},
+		{"dsh", func() (string, string) { return DshDir(), filepath.Join(DshDir(), "sessions") }},
+		{"cline", func() (string, string) { return ClineSessionDir(), ClineSessionDir() }},
+		{"qoder", func() (string, string) { return QoderDir("qoder"), filepath.Join(QoderDir("qoder"), "projects") }},
+		{"qoder-cn", func() (string, string) { return QoderDir("qoder-cn"), filepath.Join(QoderDir("qoder-cn"), "projects") }},
+		{"grok", func() (string, string) { return GrokDir(), filepath.Join(GrokDir(), "sessions") }},
+		{"workbuddy", func() (string, string) { return WorkBuddyDir(), filepath.Join(WorkBuddyDir(), "projects") }},
+		{"omp", func() (string, string) { return OmpDir(), filepath.Join(OmpDir(), "sessions") }},
+		{"droid", func() (string, string) { return FactoryDir(), filepath.Join(FactoryDir(), "sessions") }},
+		{"cursor", func() (string, string) { return CursorDir(), filepath.Join(CursorDir(), "chats") }},
+		{"alma", func() (string, string) { return AlmaDir(), almaDB() }},
 	} {
-		if _, err := os.Stat(d.sessions); err == nil {
-			out = append(out, d.dir)
+		if !settings.AgentDiscoveryAllowed(source.id) {
+			continue
+		}
+		dir, store := source.dirs()
+		if _, err := os.Stat(store); err == nil {
+			out = append(out, dir)
 		}
 	}
-	out = append(out, HermesDirs()...)
-	out = append(out, wslDirs()...)
-	return out
+	if settings.AgentDiscoveryAllowed("hermes") {
+		out = append(out, HermesDirs()...)
+	}
+	return append(out, wslDirs()...)
 }
 
 // rollout-2026-09-20T15-48-28-<thread id>[_<segment>].jsonl, and .jsonl.zst

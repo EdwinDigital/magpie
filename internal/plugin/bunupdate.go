@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/steady"
 	"github.com/yetone/magpie/internal/update"
 )
@@ -51,7 +52,7 @@ func bunDirOf(v string) string { return filepath.Join(bunRoot(), v) }
 // from any other Bun's (#1048).
 func bunExeOf(v string) string { return filepath.Join(bunDirOf(v), magpieBun()) }
 
-func magpieBun() string { return "magpie-" + bunExe() }
+func magpieBun() string { return distribution.ExecutableName() + "-" + bunExe() }
 
 func bunStatePath() string { return filepath.Join(bunRoot(), "state.json") }
 
@@ -81,6 +82,10 @@ func haveBun(v string) bool {
 	}
 	// a Bun downloaded before it was named magpie-bun takes the name
 	_ = os.Rename(filepath.Join(bunDirOf(v), bunExe()), exe)
+	if distribution.ID() != "" {
+		// This is the enterprise cache only, never the public app's runtime.
+		_ = os.Rename(filepath.Join(bunDirOf(v), "magpie-"+bunExe()), exe)
+	}
 	_, err := os.Stat(exe)
 	return err == nil
 }

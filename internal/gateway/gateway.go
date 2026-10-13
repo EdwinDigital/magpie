@@ -29,6 +29,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/yetone/magpie/internal/awake"
+	"github.com/yetone/magpie/internal/distribution"
 
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/plugin"
@@ -44,7 +45,7 @@ const DefaultAddr = "127.0.0.1:3425"
 
 // Token is the bearer token agents are told to use. The gateway only
 // listens on loopback and accepts anything, but agents insist on one.
-const Token = "magpie"
+var Token = distribution.WiringToken()
 
 // TokenFor is the token an agent that says nothing of itself in its
 // User-Agent is told to use, so the gateway still knows it: Alma's requests
@@ -226,9 +227,10 @@ func Serving() (running, window bool) {
 // Served is what the magpie answering at the gateway's address says of
 // itself.
 type Served struct {
-	Running bool   // a magpie gateway answers
-	Window  bool   // its routing can be watched in its window (#110)
-	Version string // its version; "" from one that doesn't say
+	DistributionID string
+	Running        bool   // a magpie gateway answers
+	Window         bool   // its routing can be watched in its window (#110)
+	Version        string // its version; "" from one that doesn't say
 }
 
 // ServedBy asks the address which magpie answers there. Another magpie can
@@ -246,14 +248,15 @@ func ServedBy() Served {
 	defer res.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
 	var info struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-		Window  bool   `json:"window"`
+		DistributionID string `json:"distributionId"`
+		Name           string `json:"name"`
+		Version        string `json:"version"`
+		Window         bool   `json:"window"`
 	}
 	if json.Unmarshal(b, &info) != nil || info.Name != "magpie" {
 		return Served{Running: bytes.Contains(b, []byte(`"magpie"`)), Window: bytes.Contains(b, []byte(`"window":true`))}
 	}
-	return Served{Running: true, Window: info.Window, Version: info.Version}
+	return Served{Running: true, Window: info.Window, Version: info.Version, DistributionID: info.DistributionID}
 }
 
 // Call is one request the gateway handled, for the status views.
@@ -577,7 +580,7 @@ func responsesOverHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "models": len(provider.Catalog()), "window": Window,
+	writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "distributionId": distribution.ID(), "models": len(provider.Catalog()), "window": Window,
 		"apis": []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/systemone", "/v1beta/models/{model}:generateContent", "/v1/images/generations", "/v1/images/edits", "/v1/videos", "/v1/embeddings", "/v1/rerank", "/v1/magpie/quotas", "/v1/magpie/quotas/history", "/v1/magpie/usage", "/v1/magpie/usage/requests", "/v1/magpie/route", SearchMCPPath}})
 }
 

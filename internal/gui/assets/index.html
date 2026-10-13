@@ -9,6 +9,7 @@
 <script src="theme.js"></script>
 <script src="omarchy.js"></script>
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="enterprise.css">
 <link rel="stylesheet" href="routing.css">
 <link rel="stylesheet" href="library.css">
 <link rel="stylesheet" href="plugins.css">
@@ -241,6 +242,7 @@
 <main class="view" id="view-settings" hidden>
   <div class="row-head set-head"><div class="warm-tabs set-tabs" id="setTabs" role="tablist" aria-label="Settings">
     <button type="button" role="tab" id="setTab-general" data-set="general" aria-controls="setPage-general" data-t>General</button>
+    <button type="button" role="tab" id="setTab-enterprise" data-set="enterprise" aria-controls="setPage-enterprise" data-t>Enterprise configuration</button>
     <button type="button" role="tab" id="setTab-usage" data-set="usage" aria-controls="setPage-usage" data-t>Allowances</button>
     <button type="button" role="tab" id="setTab-network" data-set="network" aria-controls="setPage-network" data-t>Network and sharing</button>
     <button type="button" role="tab" id="setTab-models" data-set="models" aria-controls="setPage-models" data-t>Models</button>
@@ -249,6 +251,7 @@
     <button type="button" role="tab" id="setTab-sync" data-set="sync" aria-controls="setPage-sync" data-t>Sync and backup</button>
     <button type="button" role="tab" id="setTab-about" data-set="about" aria-controls="setPage-about" data-t>About</button>
   </div></div>
+  <section class="set-page" id="setPage-enterprise" role="tabpanel" aria-labelledby="setTab-enterprise" hidden></section>
   <section class="set-page" id="setPage-general" role="tabpanel" aria-labelledby="setTab-general">
     <div class="list prefs">
       <div class="row pref">
@@ -515,7 +518,9 @@
   </div>
 </div>
 
+<script src="enterprise-brand.js"></script>
 <script src="i18n.js"></script>
+<script src="enterprise.js"></script>
 <script src="caller-keys.js"></script>
 <script src="purposes.js"></script>
 <script src="app.js"></script>

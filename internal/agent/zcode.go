@@ -145,7 +145,7 @@ func zcodeProviderJSON(path string, keep bool) any {
 	if keep {
 		base, token = zcodeKept(filepath.Dir(path))
 	}
-	return map[string]any{"name": "magpie", "kind": zcodeKinds[zcodeFormat(filepath.Dir(path))], "enabled": on, "source": "custom",
+	return map[string]any{"name": wiringDisplayName(), "kind": zcodeKinds[zcodeFormat(filepath.Dir(path))], "enabled": on, "source": "custom",
 		"options": map[string]any{"apiKey": token, "baseURL": base}, "models": ms}
 }
 
@@ -449,7 +449,7 @@ func zcodeRules(path string, on, keep bool) error {
 		if keep {
 			base, token = zcodeKept(filepath.Dir(path))
 		}
-		rule := map[string]any{"providerId": magpieID, "providerName": "magpie", "enabled": true,
+		rule := map[string]any{"providerId": magpieID, "providerName": wiringDisplayName(), "enabled": true,
 			"config": map[string]any{
 				"group":            "standard-personal",
 				"access":           map[string]any{"type": "api-key", "apiKey": token},

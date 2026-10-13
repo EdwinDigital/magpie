@@ -83,10 +83,11 @@ async function api(path, body, heads, signal) {
   // reaches the default omp row (#1187). Only # is encoded: ? = & stay a
   // query string, which encodeURIComponent would turn into a 404.
   path = path.replace(/#/g, "%23");
+  const multipart = body instanceof FormData;
   const res = await fetch("/api/" + path, {
     method: body === undefined ? "GET" : "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: multipart ? { "X-Magpie-Upload": "zip" } : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
     signal,
   });
   heads?.(res.headers);
@@ -100,6 +101,10 @@ async function api(path, body, heads, signal) {
   }
   if (!res.ok) {
     const err = new Error(data?.error || `${res.status} ${res.statusText}`);
+    if (data?.code === "config_conflict") {
+      err.code = data.code;
+      err.message = t("Enterprise configuration changed in another window. Cancel to reload before saving.");
+    }
     if (data?.code === "runtime_unavailable") {
       err.code = data.code;
       if (data.offline === "stage" || data.offline === "disconnect") err.offline = data.offline;
@@ -202,6 +207,10 @@ function keepIcons(...roots) {
 const pngIcons = new Set(["crush", "zcode", "alma", "hanako", "cindy", "typesafe", "atomcode", "snow", "mlx-serve"]);
 
 function icon(name) {
+  if (name === "magpie" && window.enterpriseUI?.logoURL()) {
+    const e = el("span", "ic"); e.dataset.icon = name;
+    e.append(window.enterpriseUI.logoImage(window.enterpriseUI.logoURL())); return e;
+  }
   const kept = keptIcons?.get(name || "")?.shift();
   if (kept) { kept.removeAttribute("title"); return kept; }
   const e = el("span", "ic");
@@ -307,13 +316,16 @@ function renderAgents() {
   const list = $("#agents");
   list.replaceChildren();
   agentsLead(list);
-  if (!state.agents.length) {
+  const allowedAgents = state.agents.filter(a => window.enterpriseUI?.agentAllowed(a.id) !== false);
+  if (!allowedAgents.length) {
     const e = el("div", "empty-state");
-    e.append(el("b", "", t("No agents found")), el("span", "", t("Install Claude Code, Codex, Gemini CLI, OpenCode… and magpie will list them here.")));
+    const enterprise = window.enterpriseUI?.effective();
+    const noneSelected = enterprise && enterprise.visibleAgents?.length === 0;
+    e.append(el("b", "", t(noneSelected ? "No agents selected" : "No agents found")), el("span", "", t(enterprise ? "Choose visible agents in Enterprise settings, then install one of them." : "Install Claude Code, Codex, Gemini CLI, OpenCode… and magpie will list them here.")));
     list.append(e);
   }
   const { shown: used, folded } = arrangeAgents();
-  if (mode === "panel") $("#ptabN").textContent = state.agents.length || "";
+  if (mode === "panel") $("#ptabN").textContent = allowedAgents.length || "";
   const agentRow = (a, inFold) => {
     const row = el("div", "row agent");
     row.dataset.id = a.id;
@@ -391,7 +403,7 @@ function renderAgents() {
       // in words like the rest, the row itself the link (or the command)
       const act = a.import ? importButton(a) : launchSolo(a);
       sum = el("span", "ag-sum");
-      sum.append(a.import ? el("span", "v" + (a.added ? "" : " empty"), a.added ? "magpie" : t("Add magpie")) : el("span", "v empty", t("Copy launch command")), el("span"));
+      sum.append(a.import ? el("span", "v" + (a.added ? "" : " empty"), a.added ? (window.enterpriseAppName || "magpie") : t("Add magpie")) : el("span", "v empty", t("Copy launch command")), el("span"));
       const c = el("span", "chev");
       c.append(a.import ? svg(OUT, 10, 1.6) : svg(LAUNCH_GLYPH, 10, 1.5));
       sum.append(c);
@@ -529,9 +541,9 @@ function renderAgents() {
   };
   // the extras column is there for every row once any agent has one, so the
   // pickers keep lining up down the list
-  list.classList.toggle("extras", state.agents.some((a) => a.fields.some(extra) || tierMenu(a) || a.launch));
+  list.classList.toggle("extras", allowedAgents.some((a) => a.fields.some(extra) || tierMenu(a) || a.launch));
   // as wide as the row with the most squares
-  list.style.setProperty("--extras", Math.max(1, ...state.agents.map((a) => a.fields.filter((f) => extra(f) && !grouped(a, f)).length + (tierMenu(a) ? 1 : 0) + (a.launch ? 1 : 0))));
+  list.style.setProperty("--extras", Math.max(1, ...allowedAgents.map((a) => a.fields.filter((f) => extra(f) && !grouped(a, f)).length + (tierMenu(a) ? 1 : 0) + (a.launch ? 1 : 0))));
   if (!folded.length) {
     for (const a of used) list.append(agentRow(a));
   } else {
@@ -879,7 +891,7 @@ const DISCONNECT_TIP = "Take out everything magpie wrote into {agent}'s config a
 // magpie's models to offer (Cursor, Copilot) has no switch.
 // the field magpie is picked in: the first, or Gemini CLI's model, its
 // first being how it signs in
-const connectField = (a) => a.fields.find((f) => f.options.some((o) => o.ref)) || a.fields.find((f) => f.options.some((o) => o.value === "magpie"));
+const connectField = (a) => a.fields.find((f) => f.options.some((o) => o.ref)) || a.fields.find((f) => f.options.some((o) => o.value === (a.wiringId || "magpie")));
 // connectable: magpie has models for it — in its pickers, or every one
 // hidden from its lists, which leave its pickers but not the way back (#356)
 function connectable(a) {
@@ -890,6 +902,7 @@ function connectable(a) {
 const PICKS_IN = { codex: "/model", claude: "/model", opencode: "/models", pi: "/model", droid: "/model", kimi: "/model", grok: "/model", "minimax-code": "/model", dsh: "/model", crush: "ctrl+p", omp: "/model", qwen: "/model", mimocode: "/model" };
 
 function connectSaid(a) {
+  if (a.foreignOwner) return t("Connected to another client: {owner}. Disconnect it there first.", { owner: a.foreignOwner === "magpie" ? "magpie" : a.foreignOwner.startsWith("magpie-enterprise-") ? a.foreignOwner.slice(18) : t(a.foreignOwner) });
   if (!a.wired) return t("Not connected · {agent} uses its own settings", { agent: a.name });
   if (menuFromList(a)) return t("Connected · {n} models in {agent}'s model menu", { n: a.models.shown, agent: a.name });
   const at = PICKS_IN[a.id];
@@ -925,6 +938,10 @@ function connectSwitch(a) {
   s.setAttribute("aria-label", t("Connect {agent} to magpie", { agent: a.name }));
   s.title = a.wired ? t("Connected · switch off to put back what {agent} had before magpie", { agent: a.name }) : t("Switch on and {agent}'s model list gets magpie's models", { agent: a.name });
   s.append(el("i"));
+  if (a.foreignOwner) {
+    s.disabled = true;
+    s.title = connectSaid(a);
+  }
   s.onclick = async (e) => {
     e.stopPropagation();
     if (a.wired) { askDisconnect(a); return; }
@@ -1090,6 +1107,7 @@ function connectLine(a, kind) {
   const words = el("span", "ag-st-t");
   line.append(dot, words);
   const say = (s, cls) => { words.textContent = s; if (cls) line.classList.add(cls); };
+  if (a.foreignOwner) { say(connectSaid(a), "wait"); return line; }
   if (kind === "no") { say(t(NATIVE_ONLY[a.id])); return line; }
   if (kind === "link") {
     if (a.added) say(t("Added · magpie is a provider in {agent}", { agent: a.name }), "on");
@@ -1310,7 +1328,7 @@ function agentsLead(list) {
   lead.classList.toggle("welcome", first);
   if (!first) {
     const [pre, post] = t("Switch an agent on and the models you set up in magpie show up as the {magpie} provider in its own model list; or pick its model right here.").split("{magpie}");
-    lead.append(pre, el("b", "", "magpie"), post || "");
+    lead.append(pre, window.enterpriseUI.nameNode("b"), post || "");
     return;
   }
   lead.append(el("b", "ag-lead-h", t("Let your agents use the models you set up in magpie")));
@@ -1964,7 +1982,7 @@ function paintInstalls() {
   const here = new Set((state?.agents || []).map((a) => a.id));
   // one listed above by its settings alone, its CLI gone (#843), is
   // offered again too
-  const items = installInfo.filter((x) => x.missing || !here.has(x.id));
+  const items = installInfo.filter((x) => window.enterpriseUI?.agentAllowed(x.id) !== false && (x.missing || !here.has(x.id)));
   if (!items.length) { box?.remove(); return; }
   if (!box) {
     box = el("section", "ag-install");
@@ -2049,7 +2067,7 @@ function importButton(a) {
   b.title = a.added
     ? t("{name} has magpie as a provider · click to add it again", { name: a.name })
     : t("Opens {name} to add magpie as a provider — confirm it there", { name: a.name });
-  b.append(icon("magpie"), el("span", "v" + (a.added ? "" : " empty"), a.added ? "magpie" : t("Add magpie")));
+  b.append(icon("magpie"), el("span", "v" + (a.added ? "" : " empty"), a.added ? (window.enterpriseAppName || "magpie") : t("Add magpie")));
   const c = el("span", "chev");
   c.append(svg(OUT, 11, 1.6));
   b.append(c);
@@ -2099,7 +2117,7 @@ function arrangeAgents() {
   const s = state.settings || {};
   const order = s.agentOrder || [], hidden = new Set(hiddenIds());
   const rank = (a) => { const i = order.indexOf(a.id); return i < 0 ? order.length : i; };
-  const all = state.agents.map((a, i) => [a, i]).sort(([x, i], [y, j]) => rank(x) - rank(y) || i - j).map(([a]) => a);
+  const all = state.agents.filter(a => window.enterpriseUI?.agentAllowed(a.id) !== false).map((a, i) => [a, i]).sort(([x, i], [y, j]) => rank(x) - rank(y) || i - j).map(([a]) => a);
   // with 「接入」 there to use, folding starts once one is on magpie, not for a
   // model an agent not connected has in its own files (#726); with magpie
   // having nothing to connect, once any is set
@@ -4981,6 +4999,8 @@ $("#foldOff").onclick = () => {
 // One row per provider: logo, name, the agents pointed at it, key status.
 // Everything else lives in the editor, a dialog over the page.
 function renderProviders() {
+  const visibleProviders = providers.providers.filter((p) => window.enterpriseUI?.visible(p) !== false);
+  if (typeof editing === "string" && !visibleProviders.some((p) => p.id === editing)) { editing = null; draft = null; }
   if (accountArranging || providerArranging) { accountRenderPending = true; return; }
   // Rebuilding the list empties the page for a moment, which clamps its
   // scroll to the top; put it back so closing the editor leaves the reader
@@ -4995,8 +5015,8 @@ function renderProviders() {
   const onList = $("#providers"), offList = $("#offProviders");
   onList.replaceChildren();
   offList.replaceChildren();
-  const offs = providers.providers.filter((p) => p.off).length;
-  onList.hidden = offs === providers.providers.length;
+  const offs = visibleProviders.filter((p) => p.off).length;
+  onList.hidden = offs === visibleProviders.length;
   $("#offHead").hidden = !offs;
   offList.hidden = !offs || offFolded;
   const fold = $("#foldOff");
@@ -5004,7 +5024,7 @@ function renderProviders() {
   fold.title = t(offFolded ? "Show the providers turned off" : "Fold the providers turned off away");
   $("#offCount").textContent = offs ? String(offs) : "";
   let dialog = null; // the editor, if one is open
-  for (const p of providers.providers) {
+  for (const p of visibleProviders) {
     const list = p.off ? offList : onList;
     const open = editing === p.id;
     const row = el("div", "row provider" + (open ? " selected" : "") + (p.off ? " off" : ""));
@@ -5076,7 +5096,8 @@ function renderProviders() {
   renderMovable();
   renderProviderDiscovery();
   dialog = renderAdd() || dialog;
-  if (importing) dialog = renderImport(importing);
+  if (importing && window.enterpriseUI?.visible(importing.provider || { id: "" }) !== false) dialog = renderImport(importing);
+  else if (importing) { importing = null; status(t("Provider hidden by enterprise configuration"), "err"); }
   if (importingApps) dialog = renderImportApps(importingApps);
   keptIcons = null;
   markUpstream();
@@ -5230,7 +5251,7 @@ function renderMovable() {
   const box = $("#movable");
   if (!box) return;
   box.replaceChildren();
-  const ps = providers.providers.filter((p) => p.move && p.move.state !== "plugin" && p.account);
+  const ps = providers.providers.filter((p) => window.enterpriseUI?.visible(p) !== false && p.move && p.move.state !== "plugin" && p.account);
   let hid = "";
   try { hid = localStorage.getItem("magpie.deprecatedHidden") || ""; } catch {}
   const ids = ps.map((p) => p.id).join(",");
@@ -5265,7 +5286,7 @@ function renderMovable() {
 function renderExcluded() {
   const box = $("#excluded");
   box.replaceChildren();
-  for (const x of providers.excluded) {
+  for (const x of (providers.excluded || []).filter((x) => window.enterpriseUI?.allow("subscription:" + x.agent) !== false || window.enterpriseUI?.allow("custom:" + x.provider) !== false)) {
     if (x.quiet) continue; // dismissed: the Add sheet offers it back (#116)
     const r = el("div", "excluded");
     r.append(icon(x.agentIcon), el("span", "", ""));
@@ -6750,7 +6771,7 @@ function modelField(a) {
   const agent = state.agents.find((x) => x.id === a.id);
   return agent?.fields.find((f) => f.key === "model") || null;
 }
-function ofProvider(p) { return new RegExp(`^(magpie/)?${p.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`); }
+function ofProvider(p) { return new RegExp(`^(magpie(?:-enterprise-[a-z0-9-]+)?/)?${p.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`); }
 
 // Pick one of this provider's models for an agent, straight from the row.
 function pickForAgent(a, p, btn, ev) {
@@ -6809,6 +6830,7 @@ function renderAdd() {
   const imp = el("button", "text", t("Import…"));
   imp.title = t("Bring over providers set up in other apps");
   imp.onclick = openImportApps;
+  imp.hidden = !!window.enterpriseUI?.effective();
   head.append(imp);
   if (providers.providers.length) {
     const x = el("button", "text", t("Close"));
@@ -6840,12 +6862,12 @@ function renderAdd() {
     // (yetone: 对于新用户来说，这里应该只显示内置的 provider), unless it is
     // signing in now. A search naming one finds it there.
     const named = (x) => !f || x.name.toLowerCase().includes(f) || x.agent.includes(f) || "subscription".includes(f);
-    const subs = SUBS.filter((x) => !(replacedSub(x.agent) || unusedSub(x.agent)) || signing?.agent === x.agent).map((x) => subOf(x.agent)).filter(named);
-    const inPlugins = f && SUBS.some((x) => unusedSub(x.agent) && signing?.agent !== x.agent && named(subOf(x.agent)));
+    const subs = SUBS.filter((x) => window.enterpriseUI?.allow("subscription:" + x.agent) !== false).filter((x) => !(replacedSub(x.agent) || unusedSub(x.agent)) || signing?.agent === x.agent).map((x) => subOf(x.agent)).filter(named);
+    const inPlugins = window.enterpriseUI?.flag("showPluginProviderEntry") !== false && f && SUBS.some((x) => unusedSub(x.agent) && signing?.agent !== x.agent && named(subOf(x.agent)));
     // partners pay to be listed first, under a heading that says so; who
     // they are comes from usemagpie.ai (internal/provider/partners.go), and
     // each may name the languages it is shown in
-    const partners = providers.presets.filter((p) => p.kind === "partner" && partnerShown(p) && (hit(p) || partnerNote(p).toLowerCase().includes(f)));
+    const partners = providers.presets.filter((p) => window.enterpriseUI?.allow("preset:" + p.id) !== false && p.kind === "partner" && partnerShown(p) && (hit(p) || partnerNote(p).toLowerCase().includes(f)));
     if (partners.length) {
       any = true;
       const grid = section("Partners", "magpie's sponsors");
@@ -6862,11 +6884,11 @@ function renderAdd() {
       any = true;
       const grid = section("Subscriptions", "sign in, no key");
       for (const x of subs) grid.append(subTile(x));
-      if (!f || inPlugins) grid.append(morePluginsTile(f));
+      if (window.enterpriseUI?.flag("showPluginProviderEntry") !== false && (!f || inPlugins)) grid.append(morePluginsTile(f));
       const w = subs.find((x) => signing?.agent === x.agent);
       if (w) tiles.append(renderSigning(w));
     }
-    const plugged = pluginSubs().filter((x) => !(movedSub(x.agent) && SUBS.some((y) => y.agent === x.agent))).filter((x) => !f || x.name.toLowerCase().includes(f) || x.agent.includes(f) || "plugin".includes(f));
+    const plugged = pluginSubs().filter((x) => window.enterpriseUI?.allow((movedSub(x.pid || x.agent) ? "subscription:" + (x.pid || x.agent) : "plugin:" + x.agent)) !== false).filter((x) => !(movedSub(x.agent) && SUBS.some((y) => y.agent === x.agent))).filter((x) => !f || x.name.toLowerCase().includes(f) || x.agent.includes(f) || "plugin".includes(f));
     if (plugged.length) {
       any = true;
       const grid = section("From plugins", "signed in by an OpenCode plugin or a pi package");
@@ -6879,7 +6901,7 @@ function renderAdd() {
     // good (#694, mintonight: no menu to open first, and no "Don't show
     // here": hiding one left its sign-in where it was). One hidden before
     // (#116) is listed with the rest.
-    const gone = (providers.excluded || []).filter((x) => x.quiet && x.provider && (!f || x.agentName.toLowerCase().includes(f) || x.agent.includes(f)));
+    const gone = (providers.excluded || []).filter((x) => x.quiet && x.provider && (window.enterpriseUI?.allow("subscription:" + x.agent) !== false || window.enterpriseUI?.allow("custom:" + x.provider) !== false) && (!f || x.agentName.toLowerCase().includes(f) || x.agent.includes(f)));
     if (gone.length) {
       any = true;
       const grid = section("Removed from magpie", "still signed in");
@@ -6904,8 +6926,12 @@ function renderAdd() {
     // this machine's (Avalon on Discord didn't find it among the relays)
     for (const [kind, title, hint] of [["vendor", "Vendors", "the makers' own APIs"], ["relay", "Relays", "one key, many vendors"], ["local", "On this machine", ""], ["remote", "Another computer's magpie", "shared on its network"]]) {
       // a vendor's China endpoint is a preset of its own: one row with the global one
-      const rows = providers.presets.filter((p) => p.kind === kind && !globalOf(p))
-        .map((p) => [p, chinaOf(p)]).filter(([p, cn]) => hit(p) || (cn && hit(cn)));
+      const rows = providers.presets.filter((p) => p.kind === kind && !globalOf(p)).map((p) => {
+        const cn = chinaOf(p), globalAllowed = window.enterpriseUI?.allow("preset:" + p.id) !== false;
+        const chinaAllowed = cn && window.enterpriseUI?.allow("preset:" + cn.id) !== false;
+        if (!globalAllowed) return chinaAllowed ? [cn, null] : null;
+        return [p, chinaAllowed ? cn : null];
+      }).filter(Boolean).filter(([p, cn]) => hit(p) || (cn && hit(cn)));
       if (!rows.length) continue;
       any = true;
       const grid = section(title, hint);
@@ -6918,9 +6944,10 @@ function renderAdd() {
       b.onclick = () => { editing = { custom: true }; draft = null; renderProviders(); };
       const pl = el("button", "link", t("look for a plugin"));
       pl.onclick = () => openPlugins(presetQuery.trim());
-      none.append(b, t(", or "), pl);
+      if (window.enterpriseUI?.flag("showCustomProviderEntry") !== false) none.append(b);
+      if (window.enterpriseUI?.flag("showPluginProviderEntry") !== false) none.append(pl);
       tiles.append(none);
-    } else if (!f) {
+    } else if (!f && window.enterpriseUI?.flag("showCustomProviderEntry") !== false) {
       // a vendor not listed: one line under them all
       const foot = el("div", "custom-foot");
       const c = el("button", "custom" + (editing?.custom ? " on" : ""));
@@ -6984,6 +7011,7 @@ async function pluginSignIn(id) {
 
 // openProvider: a provider opened in the Providers tab
 async function openProvider(id) {
+  if (providers && window.enterpriseUI?.visible(providers.providers.find((p) => p.id === id) || { id }) === false) { status(t("Provider hidden by enterprise configuration"), "err"); return; }
   if (view === "providers" && providerDirty() && !(await confirmDiscard())) return;
   if (!await show("providers")) return;
   closeModal();
@@ -7102,7 +7130,7 @@ function countPartner(what, ids) {
 function markNewPartners() {
   const b = $("#addProvider");
   if (!b) return;
-  const fresh = adding ? [] : (providers?.presets || []).filter((p) => p.kind === "partner" && p.new && !p.added && partnerShown(p));
+  const fresh = adding ? [] : (providers?.presets || []).filter((p) => window.enterpriseUI?.allow("preset:" + p.id) !== false && p.kind === "partner" && p.new && !p.added && partnerShown(p));
   b.classList.toggle("has-new", fresh.length > 0);
   if (fresh.length) b.title = t("New in Partners: {names}", { names: fresh.map((p) => p.name).join(", ") });
   else b.removeAttribute("title");
@@ -9068,6 +9096,7 @@ async function discoverLocalProviders(force = false) {
 }
 
 function renderProviderDiscovery() {
+  if (window.enterpriseUI?.effective()) { $("#providerDiscovery").hidden = true; return; }
   const hint = $("#providerDiscovery");
   const fresh = providerDiscovery.filter((c) => !discoveryIgnored.has(c.fingerprint));
   const count = fresh.length, compact = !!providers?.providers.length;
@@ -9102,6 +9131,7 @@ window.addEventListener("storage", (e) => {
 // Providers other apps have set up, for the user to pick from. magpie only
 // reads those apps; the keys stay on the server side and the dialog sees them masked.
 async function openImportApps(discovered) {
+  if (window.enterpriseUI?.effective()) return;
   importingApps = { loading: true, sources: [], picks: {} };
   renderProviders();
   try {
@@ -19274,7 +19304,7 @@ function tabKeys(tabs, sel) {
 // A part with no row to show here (every one hidden on this system) has no
 // tab. A click on a tab, like every click, leaves the page where it is: the
 // tabs at the top stay where they were and the part comes in under them.
-const SET_TABS = ["general", "usage", "network", "models", "privacy", "otel", "sync", "about"];
+const SET_TABS = ["general", "enterprise", "usage", "network", "models", "privacy", "otel", "sync", "about"];
 let setTab = "general";
 try { const k = localStorage.getItem("magpie.settingsTab"); if (SET_TABS.includes(k)) setTab = k; } catch {}
 let setShown = setTab; // the part shown: the one picked, or the first there
@@ -19304,6 +19334,7 @@ function setSetTab(tab, remember) {
     if (on) thumbsUnderPicks($("#setPage-" + id));
   }
   setShown = tab;
+  if (tab === "enterprise") { window.enterpriseUI?.render(); window.enterpriseUI?.load(); }
   $("#setTabs").setAttribute("aria-label", t("Settings"));
   if (view === "settings") syncURL();
 }
@@ -19350,7 +19381,8 @@ function renderCLI(r) {
     } catch (e) { status(t(e.message), "err"); } finally { btn.disabled = false; }
   };
   const paint = (v) => {
-    sub.textContent = v.stuck === "translocated" ? t("macOS runs magpie from a temporary copy until it is moved to Applications: move it there first")
+    sub.textContent = v.stuck === "enterprise" ? t("Enterprise packages keep the shared magpie command unchanged. Run this executable by its full path: {path}", { path: v.exe })
+      : v.stuck === "translocated" ? t("macOS runs magpie from a temporary copy until it is moved to Applications: move it there first")
       : v.stuck === "read-only" ? t("magpie runs from its disk image: copy it to Applications first")
       : v.ours ? t("In a new terminal, magpie runs this app: {path}", { path: v.command }) + (v.shim && v.command === v.shim ? " (" + t("which runs {name}", { name: exeName(v.exe) }) + ")" : "")
       : v.command ? t("In a new terminal, magpie runs another copy: {path}", { path: v.command }) + (v.version ? " (" + v.version + ")" : "")
@@ -19406,6 +19438,18 @@ function renderUpdateMirror(r, s) {
   val.replaceChildren();
   const sub = el("div", "sub");
   who.append(sub);
+  if (window.bootPrefs?.enterprise?.distributionId) {
+    const policy = window.enterpriseUI?.updatePolicy();
+    sub.textContent = policy?.mode === "manual" ? t("Download new versions through your enterprise distribution channel. Self-updates are not configured.")
+      : policy?.channel ? t("Enterprise distribution channel: {channel}. Public Magpie updates are never used.", { channel: policy.channel })
+      : t("Enterprise packages use their configured update source. Public GitHub mirrors are not used.");
+    if (policy?.feedUrl) {
+      const source = el("code", "", new URL(policy.feedUrl).host);
+      source.title = policy.feedUrl;
+      val.append(source);
+    }
+    return;
+  }
   const m = s.updateMirror || "";
   sub.textContent = mirrorErr || (m ? t("Updates are downloaded through this mirror, each checked against usemagpie.ai's checksum")
     : t("Updates are downloaded from GitHub; a mirror can be used where GitHub is slow"));
@@ -19443,6 +19487,7 @@ function renderUpdateMirror(r, s) {
 }
 
 function renderSettings() {
+  window.enterpriseUI?.render();
   const s = prefs;
   const keep = prefsKeep(s);
   prefsBase = keep;
@@ -19554,6 +19599,7 @@ function renderSettings() {
 
   const about = $("#about");
   about.replaceChildren();
+  const manualUpdates = window.enterpriseUI?.updatePolicy()?.mode === "manual";
   const row = (name, sub, value, ...tools) => {
     const r = el("div", "row pref");
     const who = el("div", "who");
@@ -19569,7 +19615,7 @@ function renderSettings() {
   renderUpdate(row(t("Version"), "", s.version));
   // what changed in this version, and in one waiting; a build from source
   // has no notes
-  if (/^v?\d+\.\d+\.\d+$/.test(s.version || "")) {
+  if (!manualUpdates && /^v?\d+\.\d+\.\d+$/.test(s.version || "")) {
     const notes = el("button", "text", t("Open"));
     notes.onclick = async () => openWhatsNew(await api(updatePath("update")).catch(() => null), notes);
     row(t("What's new"), t("The release notes since the last update"), "", notes).classList.add("whatsnew-row");
@@ -19579,6 +19625,7 @@ function renderSettings() {
   const pill = row(t("Update button"), t("Shows in the header when a newer magpie is out"),
     "", segs([["off", t("Off")], ["on", t("On")]], s.noUpdatePill ? "off" : "on", (v) => savePrefs({ ...keep, noUpdatePill: v === "off" }).then(renderUpdateBadge)));
   pill.classList.add("update-pill-row");
+  pill.hidden = manualUpdates;
   if (s.updateSkip && !s.noUpdatePill) {
     api(updatePath("update")).then((u) => {
       if (!pill.isConnected || !u || u.latest !== s.updateSkip) return;
@@ -19592,12 +19639,14 @@ function renderSettings() {
   // and how often; off, only the version row's Check asks (#472)
   row(t("Automatic updates"), t("Checks for a newer magpie and downloads it"),
     "", segs([["off", t("Off")], ["on", t("On")]], s.noAutoUpdate ? "off" : "on", (v) => savePrefs({ ...keep, noAutoUpdate: v === "off" }))).classList.add("update-auto-row");
+  about.querySelector(".update-auto-row").hidden = manualUpdates;
   // kept in place while off, dimmed, its height the same (a row or a line
   // taken away would shorten the page under the click), for when they are
   // turned on again
   row(t("Check every"), s.noAutoUpdate ? t("While automatic updates are on") : t("How often magpie looks for a newer version"), "",
     segs(UPDATE_EVERY.map((m) => [m, m < 60 ? t("{n} min", { n: m }) : t("{n} h", { n: m / 60 })]), s.updateEvery || 360,
       (updateEvery) => savePrefs({ ...keep, updateEvery }))).classList.add("update-every-row", ...(s.noAutoUpdate ? ["off"] : []));
+  about.querySelector(".update-every-row").hidden = manualUpdates;
   renderUpdateMirror(row(t("Download source"), "", ""), s);
   const open = el("button", "text", t("Open"));
   open.onclick = () => api("settings/reveal", {}).catch((e) => status(e.message, "err"));
@@ -21459,6 +21508,10 @@ async function renderUpdate(r, u) {
     setTimeout(() => { if (r.isConnected && (updateSeq.get(r) || 0) === seen) renderUpdate(r); }, ms);
   };
   switch (u.state) {
+    case "manual":
+      sub.textContent = t("Download new versions through your enterprise distribution channel. Self-updates are not configured.");
+      sub.classList.add("wraps");
+      break;
     case "ready": {
       sub.textContent = t("{v} is downloaded", { v: u.latest }) + (u.error ? " · " + u.error : "");
       // a failed install says why in full, and offers the release page to
@@ -21522,13 +21575,13 @@ async function renderUpdate(r, u) {
       break;
     case "error":
       // the reason in sight: "timed out" says try a proxy, a 404 says wait
-      sub.textContent = t(u.latest ? "Couldn't download {v}" : "Couldn't check for updates", { v: u.latest }) + (u.error ? " · " + u.error.replace(/^Get "[^"]*": /, "") : "");
+      sub.textContent = t(u.latest ? "Couldn't download {v}" : "Couldn't check for updates", { v: u.latest }) + (u.error ? " · " + t(u.error.replace(/^Get "[^"]*": /, "")) : "");
       sub.title = u.error || "";
       if (u.error) sub.classList.add("wraps");
       // through a mirror (#893): it's the mirror's failing — it didn't
       // answer, or sent a file that isn't the release's, never installed —
       // and GitHub itself is offered, which also takes the mirror away
-      if (u.mirror) {
+      if (u.mirror && !u.policy?.distributionId && !window.bootPrefs?.enterprise?.distributionId) {
         sub.textContent = t("Couldn't download {v} through the mirror {mirror}; it may be down or sent a file that doesn't match the release, which isn't installed", { v: u.latest, mirror: u.mirror })
           + (u.error ? " · " + u.error.replace("through the mirror " + u.mirror + ": ", "").replace(/^Get "[^"]*": /, "") : "");
         btn(t("Download from GitHub"), async () => {
@@ -21995,6 +22048,11 @@ for (const v of document.querySelectorAll(".view")) {
 }
 
 async function show(v) {
+  if (window.enterpriseUI?.permittedView(v) === false) v = "providers";
+  if (view === "settings" && v !== view && window.enterpriseUI?.dirty()) {
+    if (!await confirmDiscard()) return false;
+    window.enterpriseUI.discard();
+  }
   // a page gateway mode leaves out (a link to it, an address kept) opens Providers
   if (gatewayMode && GATEWAY_HIDES.includes(v)) v = "providers";
   if (v !== view) {
@@ -22066,6 +22124,7 @@ function setGatewayMode(on) {
   for (const v of GATEWAY_HIDES) $(`#nav button[data-view="${v}"]`).hidden = on;
   if (on && GATEWAY_HIDES.includes(view)) show("providers");
   else slide($("#nav"), "nav");
+  if (window.enterpriseUI?.flag("libraryEnabled") === false) $('#nav [data-view="library"]').hidden = true;
 }
 // openSettings: the Settings page, in the window (the panel opens it there)
 function openSettings() {
@@ -22166,10 +22225,12 @@ if (mode !== "window" || !document.body.classList.contains("linux")) $("#winclos
 // The magpie in the corner flaps and wags its tail as the window opens and
 // when the pointer comes over it.
 function wag() {
+  if (window.enterpriseUI?.birdMotion?.() === false) return;
   const logo = document.querySelector(".brand .logo");
-  if (!logo || logo.classList.contains("wag") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const tail = logo?.querySelector(".tail");
+  if (!tail || logo.classList.contains("wag") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   logo.classList.add("wag");
-  logo.querySelector(".tail").addEventListener("animationend", () => logo.classList.remove("wag"), { once: true });
+  tail.addEventListener("animationend", () => logo.classList.remove("wag"), { once: true });
 }
 document.querySelector(".brand")?.addEventListener("mouseenter", wag);
 setTimeout(wag, 250);

@@ -602,7 +602,7 @@ func savedButSignedOut() []Exclusion {
 
 // liveLogin reads the account an agent is signed in to now.
 func liveLogin(agent string) (savedLogin, bool) {
-	if settings.AccountDiscoveryOff() {
+	if settings.AccountDiscoveryOff() || !localDiscoveryAllowed(agent, agent) {
 		return savedLogin{}, false
 	}
 	switch agent {
@@ -677,7 +677,7 @@ func rememberLogins(force bool) {
 	ls := readLogins()
 	changed := false
 	for _, agent := range loginAgents {
-		if accountRemoved(agent) {
+		if accountRemoved(agent) || !localDiscoveryAllowed(agent, agent) {
 			continue
 		}
 		l, ok := liveLogin(agent)

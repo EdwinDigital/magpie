@@ -32,7 +32,7 @@ import (
 
 // jcodeProfile is magpie's profile's table in jcode's config.toml, and
 // jcodeModels its models' array.
-const (
+var (
 	jcodeProfile = "providers." + magpieID
 	jcodeModels  = jcodeProfile + ".models"
 )

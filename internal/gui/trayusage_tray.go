@@ -46,7 +46,7 @@ func (h *host) watchTrayUsage() {
 				cells = trayPlain(cells)
 			}
 			if tip == "" {
-				tip = "magpie"
+				tip = brandName()
 			}
 			if runtime.GOOS != "darwin" {
 				cells = nil
@@ -71,7 +71,7 @@ func (h *host) watchTrayUsage() {
 					if drawn {
 						drawn = false
 						trayImageHide()
-						h.tray.SetTemplateIcon(trayIcon)
+						h.tray.SetTemplateIcon(brandTrayIcon())
 					}
 					h.tray.SetLabel(label)
 				}
@@ -84,7 +84,7 @@ func (h *host) watchTrayUsage() {
 			// Reapply even unchanged cells: a system menu-bar rebuild can
 			// replace the composed image with Wails' bird icon.
 			if len(cells) > 0 {
-				bird := trayIcon
+				bird := brandTrayIcon()
 				if s.TrayNoBird {
 					bird = nil // the cards alone
 				}

@@ -287,7 +287,7 @@ func qoderProviderAt(agent, model, v1 string) map[string]any {
 		}
 		ms = append(ms, e)
 	}
-	return map[string]any{"displayName": "magpie", "protocol": "openai", "baseUrl": v1,
+	return map[string]any{"displayName": wiringDisplayName(), "protocol": "openai", "baseUrl": v1,
 		"apiKey": agentKeyAt(agent, v1), "model": model, "models": ms}
 }
 

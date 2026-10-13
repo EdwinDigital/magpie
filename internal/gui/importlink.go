@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/yetone/magpie/internal/distribution"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,7 +30,7 @@ var imports = struct {
 
 func stashImport(link string) string {
 	var in importJSON
-	p, err := provider.ParseImport(link)
+	p, err := provider.ParseImport(canonicalEnterpriseLink(link))
 	if err != nil {
 		in.Error = err.Error()
 	} else {
@@ -47,7 +48,7 @@ func stashImport(link string) string {
 // ImportLink is the link among a launch's arguments, if any.
 func ImportLink(args []string) string {
 	for _, a := range args {
-		if strings.HasPrefix(strings.ToLower(a), provider.Scheme+":") {
+		if strings.HasPrefix(strings.ToLower(a), provider.Scheme+":") || strings.HasPrefix(strings.ToLower(a), distribution.Scheme()+":") {
 			return a
 		}
 	}
@@ -88,4 +89,11 @@ func importRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(rw, map[string]string{"icon": icon})
 	})
+}
+
+func canonicalEnterpriseLink(link string) string {
+	if distribution.ID() != "" && strings.HasPrefix(strings.ToLower(link), distribution.Scheme()+":") {
+		return provider.Scheme + link[len(distribution.Scheme()):]
+	}
+	return link
 }

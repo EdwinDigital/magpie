@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/distribution"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -17,7 +18,9 @@ import (
 // the gateway gets the vendor's reply in whichever API the agent speaks.
 
 // magpieID is the provider id agents know the gateway by.
-const magpieID = "magpie"
+var magpieID = distribution.WiringID()
+
+func wiringDisplayName() string { return settings.ResolveEnterprise(settings.Load()).AppName }
 
 // RoutingGroups is the picker's group of routing groups.
 const RoutingGroups = "Routing groups"

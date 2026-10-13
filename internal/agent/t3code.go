@@ -48,7 +48,7 @@ import (
 
 // t3Instance is the key of magpie's provider instance in T3 Code's
 // settings.json.
-const t3Instance = "providerInstances." + magpieID
+var t3Instance = "providerInstances." + magpieID
 
 func t3code(home string) *Agent {
 	base := appdir.Getenv("T3CODE_HOME")
@@ -135,7 +135,7 @@ func t3InstanceJSON(path, gw string) map[string]any {
 		}
 	}
 	return map[string]any{
-		"driver": "claudeAgent", "displayName": "magpie", "enabled": true,
+		"driver": "claudeAgent", "displayName": wiringDisplayName(), "enabled": true,
 		"environment": []map[string]any{
 			{"name": "ANTHROPIC_BASE_URL", "value": gw, "sensitive": false},
 			{"name": "ANTHROPIC_AUTH_TOKEN", "value": gateway.Token, "sensitive": false},

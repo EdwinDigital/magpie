@@ -54,6 +54,9 @@ var appIconLarge []byte
 // it light or dark as macOS 26 has it, where a picture set at run time
 // stays light, a white tile in a dark Dock (#117).
 func appIconFor() []byte {
+	if b := brandAppIcon(); len(b) > 0 {
+		return b
+	}
 	if runtime.GOOS == "darwin" {
 		if exe, err := os.Executable(); err == nil {
 			if _, err := os.Stat(filepath.Join(filepath.Dir(exe), "..", "Resources", "Assets.car")); err == nil {
@@ -310,6 +313,15 @@ func Run(version string, showMain bool, link string) error {
 		theme = "&theme=" + t
 	}
 	h := &host{query: theme, ready: make(chan struct{})}
+	initialBrand := settings.ResolveEnterprise(settings.Load())
+	enterprisePendingRestart = func(current settings.Enterprise) []string {
+		if runtime.GOOS == "darwin" && current.AppName != initialBrand.AppName {
+			// Wails' menu captions read immutable application options. Window,
+			// tray, Dock and the custom About panel update independently.
+			return []string{"Native application menu entries"}
+		}
+		return []string{}
+	}
 	// the pages open at the saved text size: Windows' and Linux's webviews
 	// take it as they are made (the Zoom options below), the Mac's once
 	// the app has started (applyZoom)
@@ -325,7 +337,7 @@ func Run(version string, showMain bool, link string) error {
 		// second launch); it hands its arguments to the running one and quits.
 		// The Mac sends the link to the running app itself.
 		SingleInstance: singleInstance(h),
-		Name:           "magpie",
+		Name:           brandName(),
 		Description:    "one place to pick every agent's model",
 		Icon:           appIconFor(),
 		Assets:         application.AssetOptions{Handler: handler},
@@ -339,7 +351,9 @@ func Run(version string, showMain bool, link string) error {
 		// exits), so the CLIs still being asked something end here.
 		OnShutdown: func() {
 			proc.EndProbes()
-			updates.install(false)
+			if !configurationRestart.Load() {
+				updates.install(false)
+			}
 		},
 		// Wails exits on some webview errors; say why before it does.
 		ErrorHandler: func(err error) { log.Println("magpie:", err) },
@@ -350,6 +364,9 @@ func Run(version string, showMain bool, link string) error {
 	// set menu becomes a menu bar in every window, the panel's too.
 	if runtime.GOOS == "darwin" {
 		appMenu := application.DefaultApplicationMenu()
+		// The native About role bypasses Go and reads the signed bundle's
+		// static name. A custom callback keeps runtime branding separate.
+		appMenu.FindByRole(application.About).SetRole(application.NoRole).OnClick(func(*application.Context) { showEnterpriseAbout() })
 		help := appMenu.FindByRole(application.HelpMenu).GetSubmenu()
 		help.Clear()
 		help.Add("Learn More").OnClick(func(*application.Context) { h.OpenURL("https://usemagpie.ai") })
@@ -373,6 +390,16 @@ func Run(version string, showMain bool, link string) error {
 	h.panel = h.makePanel()
 	h.main = h.makeMain("/?" + theme)
 	onFonts = h.fontsChanged
+	onEnterprise = h.enterpriseChanged
+	enterpriseSystemDark = h.app.Env.IsDarkMode
+	for _, event := range []events.ApplicationEventType{events.Common.ApplicationStarted, events.Common.ThemeChanged} {
+		h.app.Event.OnApplicationEvent(event, func(*application.ApplicationEvent) {
+			if len(brandLogo()) > 0 {
+				h.enterpriseChanged()
+			}
+		})
+	}
+	restartApplication = h.restartConfiguredApplication
 
 	// the menu in the page's language, relabelled when that changes (#301)
 	labels := trayMenuLabels(trayLang(settings.Load().Lang, systemLang), version, "")
@@ -442,11 +469,15 @@ func Run(version string, showMain bool, link string) error {
 		h.tray.SetLabel("magpie")
 		go dropTrayName()
 	}
-	h.tray.SetTooltip("magpie")
+	h.tray.SetTooltip(brandName())
 	if runtime.GOOS == "darwin" {
-		h.tray.SetTemplateIcon(trayIcon)
+		h.tray.SetTemplateIcon(brandTrayIcon())
 	} else {
-		h.tray.SetIcon(appIcon)
+		if b := brandLogo(); len(b) > 0 {
+			h.tray.SetIcon(b)
+		} else {
+			h.tray.SetIcon(appIcon)
+		}
 	}
 	h.tray.SetMenu(menu)
 	h.tray.AttachWindow(h.panel).WindowOffset(6)
@@ -558,6 +589,10 @@ func singleInstance(h *host) *application.SingleInstanceOptions {
 // flap plays trayFlap on the tray icon, a frame every 30ms as they were
 // drawn — the .9s of the header logo's flap — and ends on the still bird.
 func (h *host) flap() {
+	if len(brandLogo()) > 0 {
+		h.setBird(brandTrayIcon())
+		return
+	}
 	if !h.flapping.CompareAndSwap(false, true) {
 		return
 	}
@@ -571,7 +606,7 @@ func (h *host) flap() {
 		h.setBird(b)
 		time.Sleep(30 * time.Millisecond)
 	}
-	h.setBird(trayIcon)
+	h.setBird(brandTrayIcon())
 }
 
 // setBird sets a frame of the bird: in the menu bar's image while it shows
@@ -594,7 +629,7 @@ func (h *host) setBird(b []byte) {
 func panelOptions(goos, theme string) application.WebviewWindowOptions {
 	o := application.WebviewWindowOptions{
 		Name:            "panel",
-		Title:           "magpie",
+		Title:           brandName(),
 		URL:             "/?mode=panel" + theme,
 		Width:           panelWidth,
 		Height:          520,

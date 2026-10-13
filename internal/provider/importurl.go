@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+
+	"github.com/yetone/magpie/internal/distribution"
 )
 
 // Import links let a vendor or a relay hand its users a ready-made provider:
@@ -40,7 +42,7 @@ const Scheme = "magpie"
 // ParseImport reads an import link into the provider it describes.
 func ParseImport(link string) (Provider, error) {
 	u, err := url.Parse(strings.TrimSpace(link))
-	if err != nil || !strings.EqualFold(u.Scheme, Scheme) {
+	if err != nil || (!strings.EqualFold(u.Scheme, Scheme) && !strings.EqualFold(u.Scheme, distribution.Scheme())) {
 		return Provider{}, errors.New("not a magpie:// link")
 	}
 	action := u.Host

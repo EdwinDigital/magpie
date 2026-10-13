@@ -769,6 +769,9 @@ func asleep(live *Agent, k wslKind, d distro) *Agent {
 
 // wslAgents are the agents in this machine's WSL distros; none off Windows.
 func wslAgents() []*Agent {
+	if !slices.ContainsFunc(wslKinds, func(k wslKind) bool { return settings.AgentDiscoveryAllowed(k.id) }) {
+		return nil
+	}
 	if !wslLooks() {
 		return nil
 	}
@@ -780,6 +783,9 @@ func wslAgentsOf(ds []distro) []*Agent {
 	for _, d := range ds {
 		// only the agents it has: magpie writes nothing for one that isn't there
 		for _, k := range wslKinds {
+			if !settings.AgentDiscoveryAllowed(k.id) {
+				continue
+			}
 			if a := wslAgent(k, d); a.Detected() {
 				out = append(out, a)
 			}
@@ -788,6 +794,9 @@ func wslAgentsOf(ds []distro) []*Agent {
 		// because the probe found it, not because a default omp row is
 		// there, and its detection is that memory
 		for _, name := range d.OmpProfiles {
+			if !settings.AgentDiscoveryAllowed("omp#" + name) {
+				continue
+			}
 			k := wslKindOf("omp")
 			k.id, k.name = "omp#"+name, "omp · "+name
 			k.in = func(at place) *Agent {
@@ -1134,13 +1143,18 @@ const wslProbeVersion = 2
 // highest first. The glob this replaced took them in name order, so a
 // command under v18 was found before the default v22's, and v9's after
 // both (as proc.UserPath did on a Mac or Linux, 9f407cafa).
-var wslProbeScript = func() string {
+var wslProbeScript = discoveryProbeScript(func(string) bool { return true })
+
+func discoveryProbeScript(allowed func(string) bool) string {
 	s := `nv="${NVM_DIR:-$HOME/.nvm}"; nd=; [ -s "$nv/nvm.sh" ] && command -v bash >/dev/null 2>&1 && nd=$(NVM_DIR="$nv" timeout 10 bash -c '. "$NVM_DIR/nvm.sh" --no-use >/dev/null 2>&1; nvm_version default 2>/dev/null' </dev/null 2>/dev/null); ` +
 		`wslbin() { for d in "$HOME/.bun/bin" "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/.volta/bin" "$HOME/.local/share/pnpm"; do [ -x "$d/$1" ] && { echo "$d/$1"; return 0; }; done; ` +
 		`for v in $nd $(ls "$nv/versions/node" 2>/dev/null | sort -t. -k1.2,1nr -k2,2nr -k3,3nr); do d="$nv/versions/node/$v/bin"; [ -x "$d/$1" ] && { echo "$d/$1"; return 0; }; done; ` +
 		`for d in "$HOME/.local/share/mise/shims" "$HOME/.asdf/shims"; do [ -x "$d/$1" ] && { echo "$d/$1"; return 0; }; done; return 1; }; `
 	s += `echo "home:$HOME"; `
 	for _, k := range wslKinds {
+		if !allowed(k.id) {
+			continue
+		}
 		if k.dir != "" {
 			s += `[ -d "$HOME/` + k.dir + `" ] && echo dir:` + k.dir + `; `
 		}
@@ -1153,19 +1167,23 @@ var wslProbeScript = func() string {
 			s += `; `
 		}
 	}
-	s += `[ -d "$HOME/` + wslCopilotDir + `" ] && echo dir:` + wslCopilotDir + `; `
+	if allowed("copilot") {
+		s += `[ -d "$HOME/` + wslCopilotDir + `" ] && echo dir:` + wslCopilotDir + `; `
+	}
 	// a drive's source in /proc/mounts is C:\ (written C:\134), under any automount root
 	s += `awk '$1 ~ /^[A-Za-z]:/ {print "win:" $2}' /proc/mounts 2>/dev/null; `
 	// named omp profiles: the probe runs only in a distro that is running,
 	// so this never starts a stopped one to find them
-	s += `for d in "$HOME"/.omp/profiles/*; do [ -d "$d" ] && echo "profile:omp:$(basename "$d")"; done; `
+	if allowed("omp") {
+		s += `for d in "$HOME"/.omp/profiles/*; do [ -d "$d" ] && echo "profile:omp:$(basename "$d")"; done; `
+	}
 	return s + `ip route show default 2>/dev/null | head -n1 | sed 's/^/route:/'; ` +
 		`grep -m1 '^nameserver' /etc/resolv.conf 2>/dev/null | sed 's/^/ns:/'; ` +
 		`command -v wslinfo >/dev/null 2>&1 && echo "net:$(wslinfo --networking-mode 2>/dev/null)"; true`
-}()
+}
 
 func wslProbe(name string) *distro {
-	b, err := wslRun(30*time.Second, "-d", name, "-e", "sh", "-lc", wslProbeScript)
+	b, err := wslRun(30*time.Second, "-d", name, "-e", "sh", "-lc", discoveryProbeScript(settings.AgentDiscoveryAllowed))
 	if err != nil {
 		return nil
 	}

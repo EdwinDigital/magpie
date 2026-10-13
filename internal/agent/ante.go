@@ -62,7 +62,7 @@ import (
 	"github.com/yetone/magpie/internal/provider"
 )
 
-const (
+var (
 	anteProviders = "providers"
 	anteProvider  = anteProviders + "." + magpieID
 	// anteProviderKey and anteModelKey are the two settings.json keys that
@@ -322,7 +322,7 @@ func anteProviderJSON(gw string) map[string]any {
 		ms = append(ms, anteModelJSON(m))
 	}
 	p := map[string]any{
-		"display_name": "magpie",
+		"display_name": wiringDisplayName(),
 		// gw is the gateway's /v1 already (place.v1), which is what Ante
 		// joins its own path onto
 		"base_url":   gw,

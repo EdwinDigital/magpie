@@ -3,16 +3,23 @@ package autostart
 import (
 	"errors"
 
+	"github.com/yetone/magpie/internal/distribution"
 	"golang.org/x/sys/windows/registry"
 )
 
 const (
 	runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
-	name   = "magpie"
 	// where Task Manager's Startup apps keeps an entry switched off: an odd
 	// first byte is off
 	approvedKey = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`
 )
+
+var name = func() string {
+	if distribution.ID() != "" {
+		return distribution.Current().Identity.WindowsAppID
+	}
+	return "magpie"
+}()
 
 // record is where the system keeps it, as a file: none, it's the registry's
 func record() string { return "" }

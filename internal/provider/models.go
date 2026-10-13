@@ -396,6 +396,9 @@ func FetchNew(timeout time.Duration) {
 	for _, p := range All() {
 		// a list of decision models fetched before magpie kept their
 		// windows and input, or not fetched yet (ARNO on Discord)
+		if !automaticProviderAllowed(p) {
+			continue
+		}
 		decide := p.decideListDue()
 		if !decide && (p.Account == nil || !p.Ready()) {
 			continue

@@ -43,7 +43,7 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 	winOpts, winBg := windowChrome(cmp.Or(os.Getenv("MAGPIE_THEME"), settings.Load().Theme))
 	w := h.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
-		Title:            "magpie",
+		Title:            brandName(),
 		URL:              url,
 		Width:            width,
 		Height:           height,
@@ -56,6 +56,7 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 		Windows:          winOpts,
 		BackgroundColour: winBg,
 	})
+	bindNativeBrandWindow(w)
 	// A resize is kept once it settles (settle): the size, or that the
 	// window is maximised. Nothing is kept of a window not placed and shown
 	// yet (placeMain: a text size can resize it, unmaximised as yet), one
@@ -113,6 +114,7 @@ func (h *host) makePanel() *application.WebviewWindow {
 	po := panelOptions(runtime.GOOS, h.query)
 	po.Width, po.Height, po.Zoom = h.panelW(), cmp.Or(h.panelHeight, zoomed(panelStart, z)), z
 	w := h.app.Window.NewWithOptions(po)
+	bindNativeBrandWindow(w)
 	if h.tray != nil {
 		h.tray.AttachWindow(w).WindowOffset(6)
 	}
@@ -201,6 +203,7 @@ func (h *host) lighten() {
 					continue
 				}
 				ticks[i] = 0
+				releaseNativeBrandWindow(w)
 				dropWebView(w)
 				*wp = nil
 				if i == 0 {

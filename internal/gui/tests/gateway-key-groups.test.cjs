@@ -15,7 +15,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       page.setDefaultTimeout(6000);
       const events = [], errors = [];
       page.on("pageerror", (e) => errors.push(e.message));
-      await page.route("**/*", fixture(lang, "light", events, { lan: true, groups: true, limits: { server: { models: ["group/fast"] } } }));
+      const serve = fixture(lang, "light", events, { lan: true, groups: true, limits: { server: { models: ["group/fast"] } } });
+      await page.route("**/*", async (route) => {
+        if (new URL(route.request().url()).pathname === "/api/caller-keys/models-key") {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        return serve(route);
+      });
       const zh = lang === "zh";
       const w = zh
         ? { label: "此密钥可用的模型", all: "全部模型", groups: "全部路由组", relay: "Relay 的全部模型" }
@@ -44,20 +50,27 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.match(await menu.locator(".pm-item", { hasText: "Coding" }).textContent(), /group\/coding/);
       await menu.locator(".pm-item", { hasText: "Coding" }).click();
       await menu.locator(".pm-item", { hasText: "GPT-5" }).click();
+      const workSaved = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/caller-keys/models-key" && r.request().postDataJSON().key === "work");
       await page.keyboard.press("Escape");
       await menu.waitFor({ state: "detached" });
+      // Closing the menu starts a save; it is not its acknowledgement.
+      await workSaved;
+      await page.waitForFunction(() => document.querySelector('#gatewayKeys .acc[data-key="work"] .key-models')?.title.includes("group/coding"));
       assert.deepEqual(events.filter((e) => e.action === "models-key").map((e) => e.body), [{ key: "work", models: ["group/coding", "openai/gpt-5"] }]);
       // the key held to group/fast has it ticked; Every routing group picks group/*
       await badge("server").click();
       await menu.waitFor();
       assert.deepEqual((await menu.locator(".pm-item.on").allTextContents()).map((s) => s.trim()), ["Fastgroup/fast"]);
       await menu.locator(".pm-item", { hasText: w.groups }).click();
+      const serverSaved = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/caller-keys/models-key" && r.request().postDataJSON().key === "server");
       await page.keyboard.press("Escape");
       await menu.waitFor({ state: "detached" });
+      await serverSaved;
+      await page.waitForFunction(() => document.querySelector('#gatewayKeys .acc[data-key="server"] .key-models')?.title.includes("group/*"));
       assert.deepEqual(events.filter((e) => e.action === "models-key").at(-1).body, { key: "server", models: ["group/*", "group/fast"] });
       assert.deepEqual(await scrolled(), at, "a click moved the page");
-      const lefts = await page.locator("#gatewayKeys .key-models, .proto-menu .pm-item").evaluateAll((els) => els.map((e) => getComputedStyle(e).borderLeftStyle));
-      assert(lefts.every((s) => s === "none"), "a coloured left border");
+      const lefts = await page.locator("#gatewayKeys .key-models, .proto-menu .pm-item").evaluateAll((els) => els.map((e) => getComputedStyle(e).borderLeftWidth));
+      assert(lefts.every((s) => parseFloat(s) === 0), "a visible left-border stripe: " + lefts.join(", "));
       assert.deepEqual(errors, []);
     });
   }

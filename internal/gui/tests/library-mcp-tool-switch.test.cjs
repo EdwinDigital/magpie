@@ -128,6 +128,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await where(), at, "the click moved the switch");
         assert.ok(Math.abs((await scrollTop()) - top) <= 1, "the click scrolled the page");
         // two more while the first is out: one request when it's answered
+        // The long last tool can require scrolling in a short viewport.
+        // Move back to the first tool with real wheel input before clicking it.
+        const covered = await sw("read_text_file").evaluate((b) => document.querySelector("#view-library .lib-head").getBoundingClientRect().bottom - b.getBoundingClientRect().top + 8);
+        if (covered > 0) {
+          await page.mouse.wheel(0, -Math.ceil(covered));
+          await page.waitForFunction(() => document.querySelector('#view-library .lib-switch[data-tool="read_text_file"]').getBoundingClientRect().top >= document.querySelector("#view-library .lib-head").getBoundingClientRect().bottom);
+        }
         await sw("write_file").click();
         await sw("read_text_file").click();
         assert.deepEqual(await state(), [[tools[0].name, "false", true], [tools[1].name, "true", false], [tools[2].name, "false", true]]);

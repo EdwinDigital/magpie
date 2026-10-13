@@ -144,6 +144,9 @@ func geminiDir() string {
 // only for the client that minted it, so it is left alone. (Antigravity's
 // CLI, agy, keeps its sign-in in the system keyring, not here.)
 func geminiOwnLogin() (googleAccount, bool) {
+	if !localDiscoveryAllowed("gemini", "gemini") {
+		return googleAccount{}, false
+	}
 	path := filepath.Join(geminiDir(), "oauth_creds.json")
 	var a googleAuth
 	if !readJSON(path, &a) || a.RefreshToken == "" {

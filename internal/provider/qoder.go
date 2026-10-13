@@ -214,7 +214,7 @@ func migrateQoder() error {
 func qoderLogins() []sideLogin { return qoderLoginsOf(qoder.ProviderKey) }
 
 func qoderLoginsOf(agent string) []sideLogin {
-	if agent == qoder.ProviderKey && migrateQoder() != nil {
+	if agent == qoder.ProviderKey && localDiscoveryAllowed(agent, agent) && migrateQoder() != nil {
 		return nil
 	}
 	ls := sideLogins(agent, "", func(l savedLogin) bool { _, ok := qoderSaved(l); return ok })

@@ -7,9 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/yetone/magpie/internal/distribution"
 )
 
-const label = "com.yetone.magpie"
+var label = func() string {
+	if distribution.ID() != "" {
+		return distribution.Current().Identity.MacBundleID
+	}
+	return "com.yetone.magpie"
+}()
 
 func record() string {
 	home, _ := os.UserHomeDir()

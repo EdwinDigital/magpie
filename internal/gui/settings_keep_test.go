@@ -167,6 +167,12 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 	if err := settings.SetGatewayConversations(true); err != nil {
 		t.Fatal(err)
 	}
+	e := settings.EnterpriseDefaults()
+	e.AppName = "Fixture Assistant"
+	e.OverrideFields = []string{"appName"}
+	if err := settings.SetEnterprise(&e, settings.EnterpriseRevision(settings.Load())); err != nil {
+		t.Fatal(err)
+	}
 	was = settings.Load()
 	rec := httptest.NewRecorder()
 	Handler(nil, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/api/settings", strings.NewReader(`{"theme":"dark"}`)))

@@ -45,7 +45,7 @@ func stepcodeProvider(at place) any {
 		ms = append(ms, piModelJSON(m, at.gw(), true))
 	}
 	return map[string]any{
-		"name":    "magpie",
+		"name":    wiringDisplayName(),
 		"baseUrl": at.v1(),
 		"api":     "openai-completions",
 		"apiKey":  agentKeyAt("stepcode", at.gw()),

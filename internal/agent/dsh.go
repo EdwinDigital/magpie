@@ -46,6 +46,7 @@ import (
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 const dshMark = "# magpie"
@@ -61,7 +62,7 @@ const (
 
 // dshRoute is magpie's route among dsh's custom providers, and the
 // provider agent-default-model names for a model through magpie.
-const dshRoute = magpieID
+var dshRoute = magpieID
 
 // dshPiRow is the row custom providers are configured on, and its plugin.
 const (
@@ -1672,6 +1673,9 @@ func (s *dshSaidOnce) first(trouble string) bool {
 // dshWiredOnce writes magpie's route again in every patch list whose route
 // is not what magpie would write now, and says what could not be written.
 func dshWiredOnce() string {
+	if !settings.AgentDiscoveryAllowed("dsh") {
+		return ""
+	}
 	dshWrites.Lock()
 	defer dshWrites.Unlock()
 	dir := dshHome()

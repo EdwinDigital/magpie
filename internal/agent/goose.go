@@ -39,7 +39,7 @@ import (
 
 // gooseProviderID is magpie's file in Goose's custom_providers and the
 // provider GOOSE_PROVIDER names.
-const gooseProviderID = magpieID
+var gooseProviderID = magpieID
 
 // gooseThinks matches the model names goose sends its thinking level for on
 // an OpenAI-compatible provider: OpenAI's reasoning models, as goose's
@@ -128,7 +128,7 @@ func gooseProviderJSON(at place) map[string]any {
 	p := map[string]any{
 		"name":                     gooseProviderID,
 		"engine":                   "openai",
-		"display_name":             "magpie",
+		"display_name":             wiringDisplayName(),
 		"description":              "Every model magpie has, through its local gateway",
 		"api_key_env":              "",
 		"base_url":                 at.v1(),

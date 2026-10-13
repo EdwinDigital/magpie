@@ -36,6 +36,7 @@ import (
 	"github.com/yetone/magpie/internal/appdir"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // CursorLocalID is the agent's id, which its key names (TokenFor).
@@ -268,6 +269,9 @@ func cursorLocalOn(on bool) error {
 // Mac's launchctl ones are gone after a restart, and the port may have
 // changed. The app takes them when it is next opened.
 func KeepCursorLocalEnv(context.Context) {
+	if !settings.AgentDiscoveryAllowed(CursorLocalID) {
+		return
+	}
 	if !cursorLocalWired() {
 		return
 	}
