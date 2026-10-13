@@ -226,12 +226,18 @@ func callFiles() []file {
 // rows of their database or their JSON files; DeepSeek Harness's, whose
 // session file is packed in frames and so cannot be read on from the middle
 // of one; and WorkBuddy's, whose usage lines repeat a reply's id as it goes
-// on. Every agent here needs an entry in wholeCallReaders.
+// on, as CodeBuddy Code's do (#1779); and MiniMax Code's, whose messages
+// file a later generation of its history may replace (#1605); and Kimi
+// Code's, whose forks copy their parent's records (#1607). Every agent here
+// needs an entry in wholeCallReaders.
 func callSources() []file {
 	out := callFiles()
 	out = append(out, selectedFiles("opencode", openCodeCallFiles)...)
 	out = append(out, selectedFiles("zcode", zcodeCallFiles)...)
 	out = append(out, selectedFiles("dsh", dshCallFiles)...)
+	out = append(out, selectedFiles("minimax-code", minimaxCallFiles)...)
+	out = append(out, selectedFiles("kimi", kimiCallFiles)...)
+	out = append(out, selectedFiles("codebuddy", codebuddyCallFiles)...)
 	return append(out, selectedFiles("workbuddy", workbuddyCallFiles)...)
 }
 

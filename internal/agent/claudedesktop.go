@@ -258,7 +258,7 @@ func desktopCheck(p desktopPaths) string {
 		return "Claude Desktop uses another gateway configuration now (appliedId in configLibrary/_meta.json), not magpie's"
 	}
 	return wiringOff("Claude Desktop", p.prof, func(k string) (string, bool) { return edit.GetJSON(p.prof, k) },
-		"inferenceGatewayBaseUrl", gateway.URL(), "inferenceGatewayApiKey", gateway.TokenFor("claude-desktop"))
+		"inferenceGatewayBaseUrl", gateway.URL(), "inferenceGatewayApiKey", agentKey("claude-desktop"))
 }
 
 // desktopTierFields pick the model each of Claude Code's tiers runs on in
@@ -430,7 +430,7 @@ func desktopOn(p desktopPaths) error {
 	kvs := []edit.KV{
 		{Path: "inferenceProvider", Value: "gateway"},
 		{Path: "inferenceGatewayBaseUrl", Value: gateway.URL()},
-		{Path: "inferenceGatewayApiKey", Value: gateway.TokenFor("claude-desktop")},
+		{Path: "inferenceGatewayApiKey", Value: agentKey("claude-desktop")},
 		{Path: "inferenceGatewayAuthScheme", Value: "bearer"},
 	}
 	// policies seeded once: the user may tighten them in Desktop

@@ -315,6 +315,18 @@ button.rt-session { cursor: pointer; }
 .rt-act .st:empty { display: none; }
 .rt-act .st.rest { color: var(--red); }
 .rt-act .st.left { color: var(--muted); }
+/* the accounts' allowances read again by hand (#1834), beside the heading */
+.rt-read { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; margin: -3px 0 -3px 6px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
+.rt-read[hidden] { display: none; }
+.rt-read:hover { color: var(--fg); background: var(--pill-hover); }
+.rt-read:focus-visible { color: var(--fg); background: var(--pill-hover); outline: none; }
+.rt-read svg { flex: none; }
+.rt-read.busy { cursor: default; color: var(--fg-2); }
+.rt-read.busy svg > * { transform-box: view-box; transform-origin: 50% 50%; animation: spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .rt-read.busy svg > * { animation: none; } }
+/* a subscription account's windows each (#1833), under its one figure */
+.rt-act .wins { display: flex; flex-wrap: wrap; gap: 2px 12px; min-width: 0; color: var(--fg-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.rt-act .wins span { min-width: 0; overflow-wrap: anywhere; }
 .rt-act .tally { display: flex; flex-wrap: wrap; gap: 2px 12px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .rt-act .tally .bad { color: var(--red); }
 .rt-act .mdls { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -483,6 +495,9 @@ button.rt-session { cursor: pointer; }
 .rt-gedit .fbrow.muted > :not(.rt-mon):not(.text) { opacity: .45; }
 /* a member's own reasoning, beside its Up and Remove */
 .rt-gedit .fbrow .rt-fixed { height: 24px; padding: 0 9px; font-size: 11.5px; flex: none; }
+/* a member's weight under By weight (#1910), edited in place */
+.rt-gedit .fbrow .rt-weight { font-variant-numeric: tabular-nums; }
+.rt-gedit .fbrow .rt-weight-in { width: 64px; flex: none; height: 24px; font-size: 12px; padding: 0 6px; }
 /* a group a member of a group is: it takes no reasoning of its own (its
    models reason as it says, provider.SaveGroup), so its chip names the group
    it follows and opens that group's card instead. It takes the room it needs
@@ -529,6 +544,8 @@ button.rt-session { cursor: pointer; }
 .rt-cond.in input, .editor .rt-cond.in input[type="text"] { width: 24ch; }
 .rt-cond.fd { cursor: text; }
 .rt-cond.fd input, .editor .rt-cond.fd input[type="text"] { width: 24ch; }
+.rt-cond.xf { cursor: text; }
+.rt-cond.xf input, .editor .rt-cond.xf input[type="text"] { width: 24ch; }
 /* a rule's hours: two times in the pill, typed; one that isn't a time is marked */
 .rt-cond.tm { cursor: text; }
 .rt-cond.tm input.clock, .editor .rt-cond.tm input.clock[type="text"] { width: 5.5ch; text-align: center; }

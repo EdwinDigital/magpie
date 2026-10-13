@@ -11,6 +11,7 @@ import (
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/testenv"
 )
 
@@ -28,6 +29,34 @@ func enterpriseWiringSandbox(t *testing.T) string {
 	desktopProfileID = wiringProfileID(magpieID)
 	t.Cleanup(func() { magpieID, gateway.Token, desktopProfileID = id, key, prof })
 	return home
+}
+
+func TestEnterpriseHiddenCodexShutdownLeavesItsFailoverWiring(t *testing.T) {
+	home := enterpriseWiringSandbox(t)
+	a := codex(home)
+	body := "model = \"gpt-5.5\"\nopenai_base_url = \"" + gateway.URL() + gateway.CodexPath + "\"\n"
+	if err := os.MkdirAll(filepath.Dir(a.Path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.Path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stash(map[string]string{"codex.failover": "1"})
+	if !a.FailingOver() {
+		t.Fatal("fixture does not have shutdown failover wiring")
+	}
+	e := settings.EnterpriseDefaults()
+	e.VisibleAgents = []string{}
+	e.OverrideFields = []string{"visibleAgents"}
+	if err := settings.SetEnterprise(&e, settings.EnterpriseRevision(settings.Load())); err != nil {
+		t.Fatal(err)
+	}
+	if err := EndCodexFailover(); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(a.Path); err != nil || string(b) != body {
+		t.Fatalf("hidden Codex was changed while shutting down: %v %s", err, b)
+	}
 }
 
 func TestEnterpriseWiringNeverClaimsOrChangesPublicAgent(t *testing.T) {

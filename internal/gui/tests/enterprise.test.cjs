@@ -6,6 +6,7 @@ const { chromium, webkit } = require("playwright");
 const assets = path.resolve(__dirname, "../assets");
 
 async function pressSettings(page, selector) {
+  if (selector.startsWith("#setTab-")) selector += `:visible, .nav-sub:not(.leaving) button[data-of="${selector.slice(1)}"]`;
   const control = page.locator(selector), target = await control.boundingBox(), pane = await page.locator("#view-settings").boundingBox();
   if (target.y < pane.y + 4 || target.y + target.height > pane.y + pane.height - 12) {
     await page.mouse.move(pane.x + 3, pane.y + pane.height / 2);
@@ -100,8 +101,8 @@ for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]])
         await page.locator('input[value="preset:qwen-cn"]').check();
         await pressSettings(page, '#setPage-enterprise button[type="submit"]');
         await page.waitForFunction(() => document.title === "Acme <New>");
-        assert.equal(await page.locator("header .brand > span:last-child").textContent(), "Acme <New>");
-        assert.equal(await page.locator("header .brand img").count(), 0, "name is text, not HTML");
+        assert.equal(await page.locator(".brand > span:last-child").textContent(), "Acme <New>");
+        assert.equal(await page.locator(".brand img").count(), 0, "name is text, not HTML");
         await page.locator('#nav [data-view="providers"]').click();
         await page.locator('#addSheet [data-pick="Ollama"]').waitFor();
         assert.equal(await page.locator('#addSheet [data-pick="DeepSeek"]').isVisible(), true);
@@ -207,7 +208,7 @@ for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]])
       await discovery;
       await page.waitForFunction(() => document.querySelector(".pm-manual .pm-minput"));
       assert.equal(f.asked.includes("/api/plugins/listings"), true, "opening catalog restores discovery");
-      await page.locator("#prefs").click(); await page.locator("#setTab-enterprise").click();
+      await page.locator("#prefs").click(); await pressSettings(page, "#setTab-enterprise");
       await page.locator("#enterprise-publicPluginCatalog").uncheck();
       await page.locator("#enterprise-libraryEnabled").uncheck();
       await page.locator('#setPage-enterprise button[type="submit"]').click();

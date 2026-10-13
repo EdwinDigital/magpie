@@ -66,17 +66,17 @@ for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]])
         await page.goto("http://enterprise.test/?view=settings&tab=enterprise");
         await page.locator("#enterprise-appName").waitFor();
         assert.equal(await page.locator(".enterprise-theme-preview").count(), 2);
-        assert.equal(await page.locator("header .logo img").getAttribute("src"), "/logo-0-light.png");
-        await page.locator("#setTab-general").click();
+        assert.equal(await page.locator(".brand .logo img").getAttribute("src"), "/logo-0-light.png");
+        await page.locator('#setTab-general:visible, .nav-sub:not(.leaving) button[data-of="setTab-general"]').click();
         await page.locator("#themeSegs .opt").nth(2).click();
-        await page.waitForFunction(() => document.querySelector("header .logo img")?.getAttribute("src").includes("dark"));
+        await page.waitForFunction(() => document.querySelector(".brand .logo img")?.getAttribute("src").includes("dark"));
         assert((await page.locator('link[rel="icon"]').getAttribute("href")).includes("dark"));
         await page.locator("#themeSegs .opt").nth(0).click();
         await page.emulateMedia({ colorScheme: "dark" });
-        await page.waitForFunction(() => !document.documentElement.dataset.theme && document.querySelector("header .logo img")?.getAttribute("src").includes("dark"));
+        await page.waitForFunction(() => !document.documentElement.dataset.theme && document.querySelector(".brand .logo img")?.getAttribute("src").includes("dark"));
         await page.emulateMedia({ colorScheme: "light" });
-        await page.waitForFunction(() => document.querySelector("header .logo img")?.getAttribute("src").includes("light"));
-        await page.locator("#setTab-enterprise").click();
+        await page.waitForFunction(() => document.querySelector(".brand .logo img")?.getAttribute("src").includes("light"));
+        await page.locator('#setTab-enterprise:visible, .nav-sub:not(.leaving) button[data-of="setTab-enterprise"]').click();
         f.hold = true;
         const uploading = f.waitUpload();
         await page.locator("#enterprise-logo").setInputFiles(white); await uploading;
@@ -87,7 +87,7 @@ for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]])
         await page.waitForFunction(() => document.querySelector('[data-logo-theme="light"] img')?.getAttribute("src") === "/logo-1-light.png");
         assert.equal(await page.locator("#enterprise-appName").evaluate(e => document.activeElement === e), true);
         assert.equal(f.saves.length, 0, "preparing previews does not save enterprise preferences");
-        assert.equal(await page.locator("header .logo img").getAttribute("src"), "/logo-0-light.png", "unsaved upload does not change the active brand");
+        assert.equal(await page.locator(".brand .logo img").getAttribute("src"), "/logo-0-light.png", "unsaved upload does not change the active brand");
         await page.locator('#setPage-enterprise button[type="submit"]').click();
         await page.waitForFunction(() => document.title === "Kept while preparing");
         assert.equal(f.saves[0].config.logoAsset, "sha256:" + "1".repeat(64));
@@ -104,7 +104,7 @@ for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]])
         f.hold = false; f.failed = true;
         await page.locator("#enterprise-logo").setInputFiles(white);
         await page.waitForFunction(() => document.querySelector("#enterpriseResult")?.textContent === t("logo has no visible pixels"));
-        assert.equal(await page.locator("header .logo img").getAttribute("src"), "/logo-1-light.png");
+        assert.equal(await page.locator(".brand .logo img").getAttribute("src"), "/logo-1-light.png");
         await page.setViewportSize({ width: 440, height: 760 });
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false);
         if (process.env.ARTIFACT_DIR && lang === "zh") {

@@ -198,8 +198,8 @@ func loginReading(ctx context.Context, l Login) loginUsageEntry {
 		}
 		c.pending[key] = r
 		ctx, _ = quotaReading(ctx)
+		asked := claudeAskGeneration.Load()
 		go func() {
-			start := time.Now()
 			// read for all who wait for it: no one's ctx cuts it short, but
 			// it is bounded as the Usage page's refresh is
 			rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), subscriptionTimeout)
@@ -211,7 +211,7 @@ func loginReading(ctx context.Context, l Login) loginUsageEntry {
 			// (AskClaudeUsage), as SubscriptionUsage reads it: neither is kept
 			if c.pending[key] == r {
 				delete(c.pending, key)
-				if l.Agent != "claude" || claudeAsked.Load() <= start.UnixNano() {
+				if l.Agent != "claude" || claudeAskGeneration.Load() == asked {
 					if c.m == nil {
 						c.m = map[string]loginUsageEntry{}
 					}
@@ -228,7 +228,7 @@ func loginReading(ctx context.Context, l Login) loginUsageEntry {
 		return r.e
 	case <-ctx.Done():
 		// given up on: as a reading cut short would have said
-		return entry(keepLast(SubscriptionQuota{Provider: loginProvider(l), Plan: l.Plan, Windows: []QuotaWindow{}, Error: ctx.Err().Error()}, l.User))
+		return entry(keepReading(ctx, SubscriptionQuota{Provider: loginProvider(l), Plan: l.Plan, Windows: []QuotaWindow{}, Error: ctx.Err().Error()}, l.User))
 	}
 }
 
@@ -338,6 +338,7 @@ func loginQuota(ctx context.Context, l Login) SubscriptionQuota {
 	if l.Agent == "copilot" {
 		for _, c := range copilotLogins(copilotConfigDir()) {
 			if strings.EqualFold(c.User, l.User) {
+				orig := c.app
 				q := copilotSubscriptionUsage(ctx, c.app.Token, c.app.Host)
 				// an editor's stale token, the CLI signed in to the same
 				// account: read as the requests are sent (#1238)
@@ -348,7 +349,16 @@ func loginQuota(ctx context.Context, l Login) SubscriptionQuota {
 						q = copilotSubscriptionUsage(ctx, cli.Token, cli.Host)
 					}
 				}
+				// GitHub refused the token, with none in its place: the
+				// account is signed out (echo_ts on Discord)
+				if q.Error == http.StatusText(http.StatusUnauthorized) {
+					copilotRefuse(orig.Token, http.StatusUnauthorized)
+					copilotRefuse(c.app.Token, http.StatusUnauthorized)
+					copilotLapse(orig)
+					q.Error = copilotLapsedText
+				}
 				if q.Error == "" {
+					copilotUnlapse(orig)
 					refreshCopilotEntitlement(c.app, q.Plan, q.AccessSKU)
 				}
 				return q
@@ -358,7 +368,8 @@ func loginQuota(ctx context.Context, l Login) SubscriptionQuota {
 	}
 	q := SubscriptionQuota{Provider: l.Agent, Plan: l.Plan, Windows: []QuotaWindow{}}
 	if l.Agent == "claude" && !l.Active {
-		// a saved account is never asked: what Claude Code told of it
+		// a saved account: what Claude Code told of it, or, when its card
+		// is refreshed, its /usage run in the account's own directory
 		ws, err := claudeWindows(ctx, l.User, false)
 		q.Windows = ws
 		if err != nil {

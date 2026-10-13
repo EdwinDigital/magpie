@@ -1,5 +1,31 @@
 // Audited application-owned translation keys. Third-party metadata is never rewritten.
 window.enterpriseBrandKeys = new Set([
+  // Application-owned guidance added by the main sync; identifiers stay literal.
+  "magpie set openai_base_url in {agent}'s config.toml, so a request the ChatGPT account {agent} is signed in to has no allowance for goes on to your other ChatGPT accounts on in magpie. {agent} keeps to its own models. To stop it, tick Only switch {agent}'s sign-in under Providers › Codex, or switch those accounts off; connecting {agent} adds magpie's models.",
+  "magpie found these on this computer. Click one to connect it:",
+  "The models {agent} reaches itself, not through magpie. Off: its model picker offers magpie's alone; the one it is set to stays",
+  "magpie sets {k} itself, so it can't be added",
+  "Which header the API key goes in on the Anthropic API. Most services take both; pick one for a service that refuses the two together. magpie also switches to one by itself when a service says so.",
+  "magpie signs {agent} in to the next account with room when the one it is on is used up, and back once that has room again, by writing {agent}'s own sign-in; {agent}'s requests go straight to OpenAI, never through magpie. A {agent} app or session already open stays on its account until it is opened again. Connected to magpie, {agent}'s requests go through it as before.",
+  "magpie only switches {agent}'s sign-in; its requests go straight to OpenAI",
+  "{agent}'s requests go through magpie to fail over to your other accounts again",
+  "Requests magpie made by itself, not an agent: a routing group's classifier, a web search or an image description. They count against the key or account like any other request.",
+  "magpie's own",
+  "{n} by magpie itself",
+  "Replies magpie ended because the model kept repeating itself",
+  "Reported by the app that made it, through POST /v1/magpie/usage/requests: the call went straight to its vendor, not through magpie.",
+  "Changes nothing in {agents}: magpie’s names don’t reach their model lists",
+  "A notification when Claude Code, Codex, OpenCode or another agent going through magpie finishes a task that ran at least this long",
+  "When a model can't search the web directly, the selected provider searches for it and returns the results. Searches may use the service's quota or incur charges; if the provider magpie picks fails, it tries other available sources, but a provider you select here is never replaced by another provider, only by your Search APIs.",
+  "A disabled model is refused on every route through magpie (a request, a session, a routing group, a fallback, a sub-agent, a decision model) and left out of magpie's lists and agents' pickers. Only requests through magpie are covered. Type a pattern such as *fable* to disable every model it matches",
+  "{names} stop working in magpie until this is on again: magpie reads none of the sign-ins they come from. API-key providers work as before.",
+  "Every subscription stops working in magpie until this is on again: magpie reads none of the sign-ins they come from. API-key providers work as before.",
+  "That list leaves out the address this page is open from: add it first, or this page can’t reach magpie",
+  "Set by MAGPIE_ALLOW_IPS. Other computers reach magpie only from these addresses, even with a gateway key; this computer always can",
+  "Other computers reach magpie only from these addresses or ranges (CIDR), even with a gateway key; this computer always can. None listed lets every address in",
+  "Codex's own multi_agent_v2 is on in the config magpie routes, which takes over the multi-agent V1 magpie's models ask for; turn it off in Codex's config to run subagents on magpie's models.",
+  "Codex's multi-agent V1 is on, but magpie couldn't read Codex's config to check its own multi_agent_v2.",
+  "Magpie is a custom provider in Grok App's Settings › Account. A chat can pick magpie's models in its model picker, and Grok App stays on its current route until you press Use on magpie there.",
   "magpie",
   "When I ask: opening or refreshing the Usage page, a card's refresh, and magpie quota or accounts read them; routing, the menu bar and alerts go by the last reading till then. An account a vendor turns away for its quota is still read.",
   "Switch an agent on and the models you set up in magpie show up as the {magpie} provider in its own model list; or pick its model right here.",
@@ -368,7 +394,8 @@ window.enterpriseBrandKeys = new Set([
 ]);
 window.enterpriseBrandText = (text) => text
   .replace(/\bas the magpie provider\b/gi, "as the {app} provider")
+  .replace(/\bmagpie set openai_base_url\b/gi, "{app} set openai_base_url")
   .replace(/\bmagpie\s+(?=quota\b|accounts\b)/gi, "{cli} ")
   // German compounds are prose, unlike package names and protocol identifiers.
   .replace(/\bmagpie-(?=Anbieter\b|Backup\b|Endpunkt\b|Fenstern\b|Log\b|Modelle\b|Modellen\b|Schl\u00fcssel\b|Symbol\b|Teil\b|Teils\b|Tray\b|Version\b)/gi, "{app}-")
-  .replace(/(^|[^{\w])\bmagpie\b(?![-.\/:]|\s+(?:quota|accounts|account|providers|provider|update|version|library|mcp|group|web|tui|gui|tray|panel|set|codex|claude|help|doctor|plugins|plugin|backup|s3|webdav|rtk|install|app|config|serve|proxy|skills|skill)\b)/gi, "$1{app}");
+  .replace(/(^|[^{\w])\bmagpie\b(?![-\/:]|\.[\w]|\s+(?:quota|accounts|account|providers|provider|update|version|library|mcp|group|web|tui|gui|tray|panel|set|codex|claude|help|doctor|plugins|plugin|backup|s3|webdav|rtk|install|app|config|serve|proxy|skills|skill)\b)/gi, "$1{app}");

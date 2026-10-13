@@ -27,6 +27,11 @@ test("enterprise branding preserves technical identifiers, provider metadata and
     const quota = vm.runInContext('t("When I ask: opening or refreshing the Usage page, a card\'s refresh, and magpie quota or accounts read them; routing, the menu bar and alerts go by the last reading till then. An account a vendor turns away for its quota is still read.")', context);
     assert.equal(quota.includes("msai-client"), true, lang + ": CLI guidance must use the immutable executable name");
     assert.equal(quota.includes("Acme Assistant quota"), false);
+    const switchOnly = vm.runInContext('t("magpie only switches {agent}\'s sign-in; its requests go straight to OpenAI", {agent:"Codex"})', context);
+    assert.equal(/magpie/i.test(switchOnly), false, lang + ": new main guidance keeps enterprise branding");
+    const reported = vm.runInContext('t("Reported by the app that made it, through POST /v1/magpie/usage/requests: the call went straight to its vendor, not through magpie.")', context);
+    assert.equal(reported.includes("Acme Assistant"), true);
+    assert.equal(reported.includes("/v1/magpie/usage/requests"), true, "the API path is not a display brand");
   }
 });
 

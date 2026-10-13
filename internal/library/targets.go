@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/jsonc"
+
 	"github.com/yetone/magpie/internal/agent"
 	"github.com/yetone/magpie/internal/agentplug"
 	"github.com/yetone/magpie/internal/appdir"
@@ -113,7 +116,11 @@ func targetOf(a *agent.Agent) *Target {
 		t.Instructions = filepath.Join(d, "GEMINI.md")
 		t.MCP = &mcpFile{Path: filepath.Join(d, "mcp_config.json"), Format: fmtAntigravity}
 		t.Skills = filepath.Join(d, "skills")
-	case "opencode":
+	case "opencode", "deveco":
+		// DevEco Code is OpenCode's fork and reads as it does: AGENTS.md
+		// in its config folder, else Claude Code's CLAUDE.md, skills there
+		// and under ~/.claude and ~/.agents (packages/opencode/src/session
+		// /instruction.ts, skill/index.ts)
 		d := filepath.Dir(a.Path)
 		t.Instructions = filepath.Join(d, "AGENTS.md")
 		t.Note = "opencode-claude"
@@ -254,6 +261,15 @@ func targetOf(a *agent.Agent) *Target {
 		t.MCP = &mcpFile{Path: a.Path, Format: fmtGrok}
 		t.Instructions = filepath.Join(a.Dir, "AGENTS.md")
 		t.Skills = filepath.Join(a.Dir, "skills")
+	case "grok-app":
+		// Independent mode (Use on a custom provider) starts the CLI with
+		// GROK_HOME at agent-home, beside config.toml (grok-app's
+		// providers.md). Shared mode keeps ~/.grok, which is Grok Build's
+		// row. Skills there are read as well as ~/.agents/skills.
+		home := filepath.Dir(a.Path)
+		t.MCP = &mcpFile{Path: a.Path, Format: fmtGrok}
+		t.Instructions = filepath.Join(home, "AGENTS.md")
+		t.Skills = filepath.Join(home, "skills")
 	case "droid":
 		// Droid's user-wide servers are ~/.factory/mcp.json's mcpServers,
 		// type stdio, http or sse as Claude Code's (docs.factory.ai/cli/
@@ -320,6 +336,15 @@ func targetOf(a *agent.Agent) *Target {
 		t.Instructions = filepath.Join(a.Dir, "ATOMCODE.md")
 		t.MCP = &mcpFile{Path: filepath.Join(a.Dir, "mcp.json"), Format: fmtOmp}
 		t.Skills = filepath.Join(a.Dir, "skills")
+	case "qwen":
+		// Qwen Code reads QWEN.md (and AGENTS.md) in its global folder,
+		// $QWEN_HOME else ~/.qwen, before every conversation; its settings'
+		// context.fileName renames them, the first name being the one it
+		// writes itself (getGlobalQwenDir in packages/core/src/config/
+		// storage.ts, getMemoryFilePaths in memory/memoryDiscovery.ts,
+		// getCurrentMemoryFilename in utils/memory-constants.ts,
+		// QwenLM/qwen-code c5098a27)
+		t.Instructions = filepath.Join(a.Dir, qwenContextFile(a.Path))
 	case "zed":
 		// Zed reads its MCP servers from context_servers in the settings.json
 		// magpie sets its model in (~/.config/zed, $XDG_CONFIG_HOME/zed,
@@ -351,6 +376,25 @@ func targetOf(a *agent.Agent) *Target {
 		return nil
 	}
 	return t
+}
+
+// qwenContextFile is the name of the file Qwen Code reads its user-wide
+// instructions from: the first of its settings' context.fileName, a name
+// or a list of them, else QWEN.md (packages/cli/src/config/config.ts sets
+// it with setMemoryFilename, which trims each name and skips an empty one).
+func qwenContextFile(settings string) string {
+	raw, _ := os.ReadFile(settings)
+	v := gjson.GetBytes(jsonc.ToJSON(raw), "context.fileName")
+	names := []gjson.Result{v}
+	if v.IsArray() {
+		names = v.Array()
+	}
+	for _, n := range names {
+		if name := strings.TrimSpace(n.String()); n.Type == gjson.String && name != "" {
+			return name
+		}
+	}
+	return "QWEN.md"
 }
 
 // pluginMCP is each MCP format an agent plugin may name
@@ -447,7 +491,7 @@ func wslTargetOf(a *agent.Agent) *Target {
 var ownFolder = map[string]bool{
 	"hermes": true, "omp": true, "opencode": true, "mimocode": true, "droid": true,
 	"grok": true, "commandcode": true, "atomcode": true, "qoder": true, "qoder-cn": true,
-	"minimax-code": true, "fx": true, "dsh": true,
+	"minimax-code": true, "fx": true, "dsh": true, "qwen": true,
 }
 
 // wslOwnFolder is the target of a, an agent in a running WSL distro that
@@ -524,7 +568,7 @@ func Targets() []*Target {
 
 // readsShared are the agents that read ~/.agents/skills as well as their
 // own folder (each one's docs or source).
-var readsShared = []string{"codex", "gemini", "opencode", "crush", "dsh", "commandcode", "devin", "droid", "cline", "grok", "fx", "alma"}
+var readsShared = []string{"codex", "gemini", "opencode", "deveco", "crush", "dsh", "commandcode", "devin", "droid", "cline", "grok", "grok-app", "fx", "alma"}
 
 // readsWith adds to each agent's SkillsAlso the agents whose folder it
 // reads skills from too: one that is the very same folder (Kimi Code's,

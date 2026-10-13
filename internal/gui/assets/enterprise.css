@@ -19,15 +19,15 @@
 .enterprise-choice .enterprise-check { margin-left: auto; }
 .enterprise-selection-help { margin: 0 0 8px; }
 .enterprise-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 18px 0; }
-header .brand { min-width: 0; }
-header .brand > span:last-child { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-header .logo img { display: block; object-fit: contain; }
-header .logo .enterprise-logo-dark { display: none; }
-:root[data-theme="dark"] header .logo .enterprise-logo-light { display: none; }
-:root[data-theme="dark"] header .logo .enterprise-logo-dark { display: block; }
+.brand { min-width: 0; }
+.brand > span:last-child { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand .logo img { display: block; object-fit: contain; }
+.brand .logo .enterprise-logo-dark { display: none; }
+:root[data-theme="dark"] .brand .logo .enterprise-logo-light { display: none; }
+:root[data-theme="dark"] .brand .logo .enterprise-logo-dark { display: block; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) header .logo .enterprise-logo-light { display: none; }
-  :root:not([data-theme="light"]) header .logo .enterprise-logo-dark { display: block; }
+  :root:not([data-theme="light"]) .brand .logo .enterprise-logo-light { display: none; }
+  :root:not([data-theme="light"]) .brand .logo .enterprise-logo-dark { display: block; }
 }
 @media (max-width: 620px) {
   .enterprise-form .row { flex-wrap: wrap; gap: 10px; }
@@ -37,5 +37,5 @@ header .logo .enterprise-logo-dark { display: none; }
   .enterprise-selection .row-head { flex-wrap: wrap; }
   .enterprise-selection .enterprise-search { width: 100%; flex-basis: 100%; }
   .enterprise-logo-control input { max-width: 220px; }
-  header .brand > span:last-child { max-width: 105px; }
+  .brand > span:last-child { max-width: 105px; }
 }

@@ -40,6 +40,11 @@ keeping version and legal attribution from the bundle. The macOS menu-bar app
 identity itself follows the signed bundle, like Finder's installation name. System installation branding belongs to the package, not an
 editable signed bundle.
 
+Branding follows the shared `.brand` element when the shell moves it between the
+top bar and sidebar. Enterprise configuration participates in both settings tab
+projections. Codex shutdown failover cleanup skips hidden or foreign-owned wiring,
+like its automatic synchronization and daemon maintenance.
+
 The macOS menu-bar image is a 44-pixel alpha template displayed at 22 points,
 matching the original bird's Retina resolution. Transparent white logos keep
 their shape and gaps; macOS supplies the foreground color for the bar's appearance.

@@ -9,7 +9,7 @@
   const folded = { visibleProviders: true, visibleAgents: true };
   for (const key of Object.keys(folded)) { try { const value = localStorage.getItem("magpie.enterprise." + key + ".folded"); if (value !== null) folded[key] = value === "1"; } catch {} }
   const defaults = new Set(["subscription:copilot", "preset:ollama"]);
-  const originalLogo = document.querySelector("header .logo")?.cloneNode(true);
+  const originalLogo = document.querySelector(".brand .logo")?.cloneNode(true);
   const originalFavicon = "icons/favicon.svg";
   let draftLogoUrls = null, uploading = false, uploadSeq = 0;
   const systemDark = matchMedia("(prefers-color-scheme: dark)");
@@ -44,9 +44,9 @@
     const name = effective()?.appName || "magpie";
     window.enterpriseAppName = name;
     document.title = name;
-    const label = document.querySelector("header .brand > span:last-child");
+    const label = document.querySelector(".brand > span:last-child");
     if (label) label.textContent = name;
-    const logo = document.querySelector("header .logo");
+    const logo = document.querySelector(".brand .logo");
     if (!birdMotion()) logo?.classList.remove("wag");
     if (logo && originalLogo) {
       if (logoURL()) {
@@ -79,6 +79,7 @@
     }
     document.querySelectorAll("[data-app-brand]").forEach((node) => { node.textContent = name; });
     if (typeof translateStatic === "function") translateStatic();
+    if (typeof fitTop === "function") fitTop();
   }
   function themeIcons() {
     document.querySelectorAll("img[data-enterprise-logo]").forEach(img => { img.src = logoURL() || originalFavicon; });

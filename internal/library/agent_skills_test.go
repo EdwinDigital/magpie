@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -167,5 +168,71 @@ func TestDroidGrokInstructions(t *testing.T) {
 		if s := read(t, f); s != "# Mine\n\n"+blockBegin+"\nUse tabs.\n"+blockEnd+"\n" {
 			t.Errorf("%s's AGENTS.md:\n%s", id, s)
 		}
+	}
+}
+
+// Qwen Code reads QWEN.md in its folder ($QWEN_HOME, else ~/.qwen) before
+// every conversation (wongxy on Discord): the library's instructions reach
+// it there, after what the user wrote, which stays; its settings'
+// context.fileName, a JSONC list whose first non-empty name Qwen Code
+// writes itself, names another file.
+func TestQwenInstructions(t *testing.T) {
+	h := sandbox(t)
+	dir := filepath.Join(h, ".qwen")
+	write(t, filepath.Join(dir, "settings.json"), "{\n  \"model\": {\"name\": \"qwen3.8-max\"}\n}\n")
+	inst := filepath.Join(dir, "QWEN.md")
+	write(t, inst, "# Mine\n")
+	if tg := targetByID("qwen"); tg == nil || tg.Instructions != inst {
+		t.Fatalf("Qwen Code's instructions: %+v", tg)
+	}
+	if id, err := Takes("qwen-code", "instructions"); err != nil || id != "qwen" {
+		t.Fatalf("Takes(qwen-code): %q %v", id, err)
+	}
+	shared := "Use tabs."
+	ok(t)(SaveInstructions(InstructionsChange{Shared: &shared, Agents: []string{"qwen"}}))
+	if s := read(t, inst); s != "# Mine\n\n"+blockBegin+"\nUse tabs.\n"+blockEnd+"\n" {
+		t.Fatalf("QWEN.md:\n%s", s)
+	}
+	if cfg := read(t, filepath.Join(dir, "settings.json")); !strings.Contains(cfg, "qwen3.8-max") {
+		t.Fatalf("instructions rewrote the settings:\n%s", cfg)
+	}
+
+	// $QWEN_HOME moves the folder, and context.fileName renames the file
+	q := filepath.Join(h, "qwen-home")
+	t.Setenv("QWEN_HOME", q)
+	write(t, filepath.Join(q, "settings.json"), "{\n  // mine\n  \"context\": {\"fileName\": [\"  \", \" AGENTS.md \", \"QWEN.md\"]},\n}\n")
+	if tg := targetByID("qwen"); tg == nil || tg.Instructions != filepath.Join(q, "AGENTS.md") {
+		t.Fatalf("Qwen Code under QWEN_HOME with context.fileName: %+v", tg)
+	}
+	write(t, filepath.Join(q, "settings.json"), "{\"context\": {\"fileName\": \"MY.md\"}}")
+	if tg := targetByID("qwen"); tg == nil || tg.Instructions != filepath.Join(q, "MY.md") {
+		t.Fatalf("context.fileName as one name: %+v", tg)
+	}
+}
+
+// Grok App's independent home (Use on a custom provider) reads AGENTS.md
+// and skills beside agent-home/config.toml, not Grok Build's ~/.grok.
+func TestGrokAppInstructions(t *testing.T) {
+	h := sandbox(t)
+	root := filepath.Join(h, "grok-app-data")
+	t.Setenv("GROK_APP_HOME", root)
+	home := filepath.Join(root, "agent-home")
+	write(t, filepath.Join(home, "config.toml"), "[models]\ndefault = \"deepseek\"\n")
+	inst := filepath.Join(home, "AGENTS.md")
+	write(t, inst, "# Mine\n")
+	tg := targetByID("grok-app")
+	if tg == nil || tg.Instructions != inst || tg.Skills != filepath.Join(home, "skills") || tg.MCP == nil || tg.MCP.Path != filepath.Join(home, "config.toml") {
+		t.Fatalf("Grok App library places: %+v", tg)
+	}
+	if !slices.Contains(readsShared, "grok-app") {
+		t.Fatal("Grok App doesn't read ~/.agents/skills")
+	}
+	shared := "Use tabs."
+	ok(t)(SaveInstructions(InstructionsChange{Shared: &shared, Agents: []string{"grok-app"}}))
+	if s := read(t, inst); s != "# Mine\n\n"+blockBegin+"\nUse tabs.\n"+blockEnd+"\n" {
+		t.Fatalf("AGENTS.md:\n%s", s)
+	}
+	if cfg := read(t, filepath.Join(home, "config.toml")); !strings.Contains(cfg, `default = "deepseek"`) {
+		t.Fatalf("instructions rewrote the route:\n%s", cfg)
 	}
 }

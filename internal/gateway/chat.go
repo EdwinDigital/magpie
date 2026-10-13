@@ -36,7 +36,9 @@ type cRequest struct {
 	Messages []struct {
 		Role             string          `json:"role"`
 		Content          json.RawMessage `json:"content"`
-		ReasoningContent string          `json:"reasoning_content,omitempty"`
+		ReasoningContent json.RawMessage `json:"reasoning_content,omitempty"`
+		Reasoning        json.RawMessage `json:"reasoning,omitempty"`
+		ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 		ToolCalls        []cToolCall     `json:"tool_calls,omitempty"`
 		ToolCallID       string          `json:"tool_call_id,omitempty"`
 	} `json:"messages"`
@@ -66,7 +68,7 @@ type cRequest struct {
 
 func parseChat(body []byte) (*Request, error) {
 	var c cRequest
-	if err := json.Unmarshal(body, &c); err != nil {
+	if err := decodeJSON(body, &c); err != nil {
 		return nil, fmt.Errorf("invalid request: %v", err)
 	}
 	r := &Request{Model: c.Model, MaxTokens: c.MaxCompletionTokens, Temp: c.Temperature, TopP: c.TopP,
@@ -80,10 +82,10 @@ func parseChat(body []byte) (*Request, error) {
 	}
 	r.ThinkOff = strings.EqualFold(strings.TrimSpace(c.ReasoningEffort), "none")
 	var stop string
-	if json.Unmarshal(c.Stop, &stop) == nil && stop != "" {
+	if decodeJSON(c.Stop, &stop) == nil && stop != "" {
 		r.Stop = []string{stop}
 	} else {
-		json.Unmarshal(c.Stop, &r.Stop)
+		decodeJSON(c.Stop, &r.Stop)
 	}
 	var sys []string
 	for _, m := range c.Messages {
@@ -94,8 +96,15 @@ func parseChat(body []byte) (*Request, error) {
 			r.Messages = append(r.Messages, Message{Role: "user", Parts: chatParts(m.Content)})
 		case "assistant":
 			msg := Message{Role: "assistant"}
-			if m.ReasoningContent != "" {
-				msg.Parts = append(msg.Parts, Part{Kind: Thinking, Text: m.ReasoningContent})
+			// an earlier turn's thinking comes back in any of
+			// messageReasoning's spellings, and every upstream that
+			// thinks wants it as the thinking part
+			if think := reasoningText(map[string]json.RawMessage{
+				"reasoning_content": m.ReasoningContent,
+				"reasoning":         m.Reasoning,
+				"reasoning_details": m.ReasoningDetails,
+			}); think != "" {
+				msg.Parts = append(msg.Parts, Part{Kind: Thinking, Text: think})
 			}
 			msg.Parts = append(msg.Parts, chatParts(m.Content)...)
 			for _, tc := range m.ToolCalls {
@@ -120,7 +129,7 @@ func parseChat(body []byte) (*Request, error) {
 		r.Tools = append(r.Tools, Tool{Name: t.Function.Name, Description: t.Function.Description, Schema: t.Function.Parameters, Strict: t.Function.Strict != nil && *t.Function.Strict})
 	}
 	var tc string
-	if json.Unmarshal(c.ToolChoice, &tc) == nil {
+	if decodeJSON(c.ToolChoice, &tc) == nil {
 		r.ToolChoice = tc
 	} else {
 		var o struct {
@@ -129,7 +138,7 @@ func parseChat(body []byte) (*Request, error) {
 				Name string `json:"name"`
 			} `json:"function"`
 		}
-		if json.Unmarshal(c.ToolChoice, &o) == nil && o.Function.Name != "" {
+		if decodeJSON(c.ToolChoice, &o) == nil && o.Function.Name != "" {
 			r.ToolChoice = "name:" + o.Function.Name
 		}
 	}
@@ -139,7 +148,7 @@ func parseChat(body []byte) (*Request, error) {
 // chatParts reads a message's content: a string, or an array of parts.
 func chatParts(raw json.RawMessage) []Part {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if decodeJSON(raw, &s) == nil {
 		if s == "" {
 			return nil
 		}
@@ -157,7 +166,7 @@ func chatParts(raw json.RawMessage) []Part {
 			Filename string `json:"filename"`
 		} `json:"file"`
 	}
-	json.Unmarshal(raw, &items)
+	decodeJSON(raw, &items)
 	var out []Part
 	for _, it := range items {
 		switch it.Type {
@@ -279,6 +288,9 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 		}
 	}
 	turns := joinSplitCalls(r.Messages)
+	// afterTool: the last message sent is a tool result, with no message
+	// of the user's after it
+	afterTool := false
 	for i, m := range turns {
 		if m.Role == "assistant" {
 			showSeen()
@@ -344,11 +356,13 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 				}
 			} else if think != "" && replay {
 				am["reasoning_content"] = think
-			} else if replay && len(calls) > 0 {
-				// a tool call with no thinking (another model's turn), which
-				// DeepSeek turns the whole request away for (#1462)
+			} else if replay && (len(calls) > 0 || afterTool) {
+				// a tool call with no thinking (another model's turn), or a
+				// reply to a tool result with none, which DeepSeek turns the
+				// whole request away for (#1462, #1822)
 				am["reasoning_content"] = noReasoning
 			}
+			afterTool = false
 			msgs = append(msgs, am)
 			continue
 		}
@@ -404,6 +418,7 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 			}
 		}
 		msgs = append(msgs, tools...)
+		afterTool = len(tools) > 0 && len(content) == 0 && len(seen) == 0
 		flush()
 	}
 	showSeen()
@@ -662,7 +677,7 @@ func thinkingEffort(body []byte) []byte {
 		ReasoningEffort *string        `json:"reasoning_effort"`
 		Thinking        map[string]any `json:"thinking"`
 	}
-	if json.Unmarshal(body, &v) != nil || v.ReasoningEffort != nil {
+	if decodeJSON(body, &v) != nil || v.ReasoningEffort != nil {
 		return body
 	}
 	effort, _ := v.Thinking["effort"].(string)
@@ -913,7 +928,7 @@ func (d *chatDecoder) decode(data string, emit func(Event)) error {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal([]byte(data), &ch); err != nil {
+	if err := decodeJSON([]byte(data), &ch); err != nil {
 		return nil
 	}
 	if ch.Error != nil {
@@ -922,7 +937,15 @@ func (d *chatDecoder) decode(data string, emit func(Event)) error {
 	}
 	if !d.started {
 		d.started, d.tool = true, -1
-		emit(Event{Kind: KStart, MsgID: ch.ID, Model: ch.Model})
+		// most streams count the prompt only at their end, but one that
+		// counts it on its first chunk tells it at the start, as
+		// Anthropic's message_start does (#1887)
+		var prompt Usage
+		if ch.Usage != nil && ch.Usage.PromptTokens > 0 {
+			u := ch.Usage.usage()
+			prompt = Usage{Input: u.Input, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}
+		}
+		emit(Event{Kind: KStart, MsgID: ch.ID, Model: ch.Model, Usage: prompt})
 	}
 	for _, c := range ch.Choices {
 		// Translation has one reply: lock onto the first readable choice
@@ -948,7 +971,7 @@ func (d *chatDecoder) decode(data string, emit func(Event)) error {
 			t += think
 			content = text
 		} else {
-			json.Unmarshal(c.Delta.Content, &content)
+			decodeJSON(c.Delta.Content, &content)
 		}
 		if c.Delta.ExtraContent.Google.Thought {
 			t, content = t+content, ""
@@ -1001,17 +1024,17 @@ func chatChoiceIndex(raw json.RawMessage) (string, bool) {
 		return "", false
 	}
 	var text string
-	if json.Unmarshal(raw, &text) == nil {
+	if decodeJSON(raw, &text) == nil {
 		raw = json.RawMessage(text)
 	}
 	var n json.Number
-	if json.Unmarshal(raw, &n) != nil {
+	if decodeJSON(raw, &n) != nil {
 		return "", false
 	}
 	index, err := n.Int64()
 	if err != nil {
 		var f float64
-		if json.Unmarshal(raw, &f) != nil || f < 0 || f != float64(int64(f)) {
+		if decodeJSON(raw, &f) != nil || f < 0 || f != float64(int64(f)) {
 			return "", false
 		}
 		index = int64(f)
