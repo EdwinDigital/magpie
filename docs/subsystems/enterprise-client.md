@@ -106,6 +106,11 @@ the macOS bundle.
   shortcut alone does not permit every plugin provider.
 - Library is off by default. Navigation and all GUI library routes are gated.
   Existing agent resources, library files, synchronization and CLI are retained.
+  The built-in plugin switches are an independent layer: turning Library on
+  there cannot bypass enterprise policy, and enterprise polling cannot reopen
+  a built-in page switched off. The Plugins page keeps its local Built-in tab
+  and top installation form when the public catalog is closed; it makes no
+  public discovery requests in that state. See [Plugin runtime](plugin-runtime.md).
 - Uploads accept PNG/JPEG only, at most 2 MiB and 4 million pixels. `brandicon`
   strips source metadata, fits visible artwork without stretching on a 1024px
   canvas with 80% foreground, and generates two monochrome glyphs plus two
@@ -140,7 +145,10 @@ queries. Native session/call enumeration, startup history warm-up and native
 usage scans also skip unselected stores before opening directories/databases,
 including WSL; retained gateway history and direct known-session reads are not
 deleted or newly authorized. Automatic catalog synchronization, startup legacy migrations, DSH's
-wiring keeper and Codex daemon checks skip them. Hidden omp profiles are not
+wiring keeper, Claude Science's daemon keeper and Codex daemon checks skip them.
+Claude Science checks the current selection before reading its connection mark
+or probing/starting its CLI; selecting it again resumes its configured keeper.
+Hidden omp profiles are not
 enumerated; WSL probe scripts include only selected application kinds and are
 generated for the current policy. Hidden Claude Desktop descriptors avoid the
 Windows installed-package/path probe; an explicit `Find` still materializes the
@@ -218,6 +226,11 @@ resources are written before platform signing; editing an installed signed
 package is not the customization workflow. Local settings cannot change package
 identity, feed or public keys. State/cache/startup records and Windows scheme registration are
 isolated, including portable WebView2 data and redirected config suggestions.
+The optional `daemon` service added by main follows the same identity: macOS
+uses `<macBundleId>.serve` and `~/Library/Logs/<artifactSlug>/serve.log`, while
+Linux uses `<artifactSlug>.service`. Status, install, restart and uninstall
+address only those records, never the public Magpie service. Tests use fake
+service managers, not the employee's launch agents or systemd.
 The executable/CLI basename is `identity.artifactSlug` (plus `.exe` on Windows),
 not the mutable display name. Installed state/cache folders replace `magpie`
 with that basename, e.g. `~/.config/msai-client`, `~/.cache/msai-client` and

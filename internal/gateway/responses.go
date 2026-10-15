@@ -2,12 +2,15 @@ package gateway
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/tidwall/gjson"
 	"github.com/yetone/magpie/internal/provider"
 )
 
@@ -212,6 +215,7 @@ type rRequest struct {
 	PromptCacheKey    string          `json:"prompt_cache_key,omitempty"`
 	Include           []string        `json:"include,omitempty"`
 	ClientMetadata    json.RawMessage `json:"client_metadata,omitempty"`
+	AccessPrograms    json.RawMessage `json:"access_programs,omitempty"`
 	Text              json.RawMessage `json:"text,omitempty"`
 	Reasoning         *struct {
 		Effort  string `json:"effort,omitempty"`
@@ -256,7 +260,7 @@ func parseResponses(body []byte) (*Request, error) {
 	}
 	r := &Request{Model: q.Model, System: q.Instructions, MaxTokens: q.MaxOutputTokens, Temp: q.Temperature,
 		TopP: q.TopP, Stream: q.Stream, Parallel: q.ParallelToolCalls, Fast: q.ServiceTier == "priority" || q.ServiceTier == "ultrafast", Ultrafast: q.ServiceTier == "ultrafast", Tier: q.ServiceTier, CacheKey: q.PromptCacheKey, Include: q.Include,
-		ClientMetadata: sentRaw(q.ClientMetadata)}
+		ClientMetadata: sentRaw(q.ClientMetadata), AccessPrograms: q.AccessPrograms}
 	r.Text, r.Format = textFormat(sentRaw(q.Text))
 	if q.Reasoning != nil {
 		r.Effort = effortOf(q.Reasoning.Effort)
@@ -515,9 +519,16 @@ func toolResultItem(t string) bool {
 //
 // An item that carries a call_id is part of an exchange and never moves,
 // whatever its type. Before the run's first result, what the model wrote
-// between its own calls (reasoning, its text, a hosted tool's call) is its
-// step and stays; anything else there (a subagent's agent_message, a note)
-// moves as it would between the results. A call opens the run only when a
+// between its own calls is its step: reasoning and a hosted tool's call
+// stay, and its text (an assistant message) goes ahead of the run's first
+// call, with the reasoning right before it, so the step's calls stand
+// together. OpenCode Go turns a relayed request into chat with each
+// assistant message after a call opening a new assistant message, so
+// [text, call_a, text, call_b, out_a, out_b], what Codex keeps when the
+// model wrote a line before each call of a batch, reached it as two
+// messages with tool_calls and the first answered by nothing: "No tool
+// output found for tool call call_a" (#2100). Anything else there (a
+// subagent's agent_message, a note) moves as it would between the results. A call opens the run only when a
 // result after it answers it: a call nothing answers is pairToolItems'
 // (#1341), and one answered before it is not waited on. An item between two
 // whole exchanges stays where it is, and a request with nothing inside a
@@ -562,12 +573,15 @@ func joinToolRuns(body []byte) []byte {
 			strings.HasSuffix(it.Type, "_call")
 	}
 	out := make([]json.RawMessage, 0, len(input))
+	kinds := make([]item, 0, len(input)) // what each item of out is
 	var held []json.RawMessage
 	moved := false
 	// open: calls of the run in progress whose result is still ahead;
-	// answering: a result of the run has come
+	// answering: a result of the run has come; first: where in out the
+	// run's first call is
 	open := map[string]bool{}
 	answering := false
+	first := 0
 	for i, raw := range input {
 		it := items[i]
 		switch {
@@ -578,15 +592,34 @@ func joinToolRuns(body []byte) []byte {
 			}
 		case it.CallID != "":
 			if answeredLater[i] {
+				if len(open) == 0 {
+					first = len(out)
+				}
 				open[it.CallID] = true
 			}
 		case len(open) > 0 && (answering || !modelsOwn(it)):
 			held, moved = append(held, raw), true
 			continue
+		case len(open) > 0 && it.Type == "message":
+			// the model's text between its calls goes ahead of the
+			// first, the reasoning it follows with it
+			from := len(out)
+			for from > first && kinds[from-1].Type == "reasoning" {
+				from--
+			}
+			seg := append(append([]json.RawMessage(nil), out[from:]...), raw)
+			segKinds := append(append([]item(nil), kinds[from:]...), it)
+			out = slices.Insert(out[:from], first, seg...)
+			kinds = slices.Insert(kinds[:from], first, segKinds...)
+			first += len(seg)
+			moved = true
+			continue
 		}
 		out = append(out, raw)
+		kinds = append(kinds, it)
 		if len(open) == 0 {
 			out = append(out, held...)
+			kinds = append(kinds, make([]item, len(held))...)
 			held, answering = nil, false
 		}
 	}
@@ -1005,7 +1038,9 @@ func buildResponses(r *Request, model, host string, rejectTemp bool) []byte {
 	// sealed reasoning, and may refuse an item without it.
 	replay := replaysReasoning(model, host)
 	var input []any
-	for _, m := range r.Messages {
+	// a second answer to one call is left out, as the Chat and Messages
+	// builds leave it (dropSecondAnswers)
+	for _, m := range dropSecondAnswers(r.Messages) {
 		var content []map[string]any
 		flushMsg := func() {
 			if len(content) == 0 {
@@ -1103,6 +1138,9 @@ func buildResponses(r *Request, model, host string, rejectTemp bool) []byte {
 	if len(r.ClientMetadata) > 0 {
 		out["client_metadata"] = r.ClientMetadata
 	}
+	if len(r.AccessPrograms) > 0 {
+		out["access_programs"] = r.AccessPrograms
+	}
 	if len(r.Text) > 0 || r.Format != nil {
 		text := map[string]any{}
 		decodeJSON(r.Text, &text)
@@ -1193,7 +1231,12 @@ func buildResponses(r *Request, model, host string, rejectTemp bool) []byte {
 		out["include"] = include
 	}
 	b, _ := json.Marshal(out)
-	return b
+	// a call the client left unanswered (a turn it interrupted) gets its
+	// synthetic result, as buildChat's pairToolMessages and
+	// buildAnthropic's pairToolBlocks give one: the Responses API refuses
+	// the lone call, "No tool output found for function call <id>", on
+	// every turn after it too (#2222)
+	return pairToolItems(b)
 }
 
 type rUsage struct {
@@ -1295,6 +1338,11 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 		Message string `json:"message"`
 	}
 	if err := decodeJSON([]byte(data), &ev); err != nil {
+		// an error in a shape of its own is still the reply's end (#1933)
+		if e, ok := carriedError(data); ok {
+			d.endCall(emit)
+			emit(e)
+		}
 		return nil
 	}
 	switch ev.Type {
@@ -1357,8 +1405,15 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 		}
 	case "response.completed", "response.incomplete", "response.failed":
 		d.endCall(emit)
-		if ev.Response.Error != nil {
-			emit(Event{Kind: KError, Text: ev.Response.Error.Message, Code: refusedCode(data)})
+		if ev.Response.Error != nil || ev.Type == "response.failed" || ev.Response.Status == "failed" {
+			// a failed response is an error with or without the words
+			// for it, never a whole reply (#1933)
+			msg := ""
+			if ev.Response.Error != nil {
+				msg = ev.Response.Error.Message
+			}
+			status, said := requestRefused(data)
+			emit(Event{Kind: KError, Text: cmp.Or(msg, streamErrorText(data)), Code: refusedCode(data), Status: status, Said: said})
 			return nil
 		}
 		stop := "stop"
@@ -1383,11 +1438,44 @@ func (d *responsesDecoder) decode(data string, emit func(Event)) error {
 		d.endCall(emit)
 		msg := ev.Message
 		if ev.Error != nil {
-			msg = ev.Error.Message
+			msg = cmp.Or(ev.Error.Message, msg)
 		}
-		emit(Event{Kind: KError, Text: msg, Code: refusedCode(data)})
+		status, said := requestRefused(data)
+		emit(Event{Kind: KError, Text: cmp.Or(msg, streamErrorText(data)), Code: refusedCode(data), Status: status, Said: said})
 	}
 	return nil
+}
+
+// requestRefused is 400 and the vendor's error, as {"error":{…}}, when a
+// Responses stream's error event or failed response says the request
+// itself is at fault (type invalid_request_error): the ChatGPT backend
+// answers an access program the workspace doesn't have with a 200 stream
+// whose error event is access_program_not_enabled (magpie-releases#18).
+// Asked again, on this account or another, it is refused the same way, so
+// it is neither retried nor resumed, and a client answered whole gets its
+// code and param. Read by the error object's type, never by its words.
+func requestRefused(data string) (int, json.RawMessage) {
+	for _, path := range []string{"error", "response.error"} {
+		e := gjson.Get(data, path)
+		if e.IsObject() && e.Get("type").String() == "invalid_request_error" {
+			return http.StatusBadRequest, json.RawMessage(`{"error":` + e.Raw + `}`)
+		}
+	}
+	return 0, nil
+}
+
+// saidError puts the type, code and param of the vendor's own error (an
+// Event's Said) on the error a stream encoder writes, so a request the
+// vendor refused reads as refused (invalid_request_error) to the agent and
+// to the hold that decides whether to ask again, not as magpie's api_error
+// (magpie-releases#18). Without Said it is left as it was.
+func saidError(failed map[string]any, said json.RawMessage) {
+	e := gjson.GetBytes(said, "error")
+	for _, k := range []string{"type", "code", "param"} {
+		if v := e.Get(k); v.Type == gjson.String && v.String() != "" {
+			failed[k] = v.String()
+		}
+	}
 }
 
 // responsesEncoder writes events as a Responses stream. Codex reads the
@@ -1608,6 +1696,17 @@ func (e *responsesEncoder) event(ev Event) {
 		e.send("response.output_item.added", map[string]any{"output_index": e.item, "item": raw})
 		e.send("response.output_item.done", map[string]any{"output_index": e.item, "item": raw})
 		e.output = append(e.output, raw)
+	case KSearch:
+		// A search arrives whole, after it ran. Tell the client its query
+		// and sources, as Anthropic's encoder does, without inventing
+		// earlier in-progress events or citation offsets in the answer.
+		e.closeItem()
+		e.item++
+		item := responsesSearchItem(ev.Text, ev.Hits)
+		e.send("response.output_item.added", map[string]any{"output_index": e.item, "item": item})
+		e.send("response.web_search_call.completed", map[string]any{"output_index": e.item, "item_id": item["id"]})
+		e.send("response.output_item.done", map[string]any{"output_index": e.item, "item": item})
+		e.output = append(e.output, item)
 	case KToolStart:
 		if ev.ID == "" {
 			ev.ID = "call_" + newID()
@@ -1634,7 +1733,9 @@ func (e *responsesEncoder) event(ev Event) {
 		if ev.Code != "" {
 			code = ev.Code
 		}
-		e.send("response.failed", map[string]any{"response": e.response("failed", map[string]any{"error": map[string]any{"code": code, "message": ev.Text}})})
+		failed := map[string]any{"code": code, "message": ev.Text}
+		saidError(failed, ev.Said)
+		e.send("response.failed", map[string]any{"response": e.response("failed", map[string]any{"error": failed})})
 	}
 	e.col.add(ev)
 }
@@ -1668,6 +1769,21 @@ func (e *responsesEncoder) finish() {
 	e.send(typ, map[string]any{"response": e.response(status, extra)})
 }
 
+// responsesSearchItem keeps a completed search in both Responses reply forms.
+// Keep query for older clients and queries for clients using the current API.
+func responsesSearchItem(query string, hits []Hit) map[string]any {
+	sources := make([]map[string]any, 0, len(hits))
+	for _, h := range hits {
+		if h.URL != "" {
+			sources = append(sources, map[string]any{"type": "url", "url": h.URL})
+		}
+	}
+	return map[string]any{
+		"id": "ws_" + newID(), "type": "web_search_call", "status": "completed",
+		"action": map[string]any{"type": "search", "query": query, "queries": []string{query}, "sources": sources},
+	}
+}
+
 // renderResponses is the non-streaming reply.
 func renderResponses(res Result, model string, named map[string]nsTool) []byte {
 	output := []any{}
@@ -1699,6 +1815,8 @@ func renderResponses(res Result, model string, named map[string]nsTool) []byte {
 				"call_id": id, "arguments": argsString(p)}, p.Name, named)
 			item["id"] = itemPrefix(item) + newID()
 			output = append(output, item)
+		case Search:
+			output = append(output, responsesSearchItem(p.Text, p.Hits))
 		}
 	}
 	id := res.ID

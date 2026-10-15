@@ -22,6 +22,7 @@ import (
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/imagemcp"
 	"github.com/yetone/magpie/internal/netproxy"
+	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/profile"
 	"github.com/yetone/magpie/internal/provider"
@@ -42,11 +43,12 @@ const usage = `magpie — one place to pick every agent's model
   magpie panel                    open the menu bar icon's quick panel, or close it
   magpie autostart [on|off]       open magpie (in the menu bar) when you log in, or say whether it does
   magpie tui                      the same thing, in the terminal (serves the gateway while open when no magpie does)
-  magpie web [--addr host:port] [--lan] [--no-open] [--gateway]
+  magpie web [--addr host:port] [--lan] [--no-open] [--gateway] [--tls-cert <file> --tls-key <file>]
                                   the app's window in a browser, with the gateway (no desktop needed: WSL, a server over SSH)
                                   a new key each run; MAGPIE_WEB_KEY (16+ letters, digits, - . _ ~) keeps one, signed in for 400 days
                                   behind a reverse proxy, MAGPIE_WEB_URL=https://<the page there> prints the link through it
                                   --gateway: gateway mode, no Agents, Sessions or Library (on by itself with no agents here; Settings › General turns it off)
+                                  --tls-cert/--tls-key: the page and the gateway over https:// to other computers
   magpie ls                       list detected agents and their settings
   magpie <agent>                  show one agent
   magpie <agent> <model>          set an agent's model   e.g. magpie claude deepseek/deepseek-chat
@@ -65,6 +67,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie restore [--no-agents] [--no-library] <file> put a backup in on this machine
   magpie webdav [on <address>|set k=v…|now|off]      the same, kept the same on every computer through a WebDAV folder (magpie webdav help)
   magpie s3 [on s3://<bucket>[/<prefix>]|set k=v…|now|off]   the same through an S3-compatible bucket: AWS, R2, B2, MinIO… (magpie s3 help)
+  magpie github [on github://<owner>/<repo>[/<folder>]|set k=v…|now|off]   the same in an encrypted GitHub repository (magpie github help)
 
   magpie library [sync|instructions|mcp|skill]   the instructions, MCP servers and skills written into every agent (magpie library help)
 
@@ -102,14 +105,24 @@ const usage = `magpie — one place to pick every agent's model
   magpie plugin move|migrate <subscription>   run a built-in subscription's accounts on its community plugin
   magpie plugin move-back|unmigrate <subscription>   go back to the built-in, with its accounts
 
-  magpie serve                    run the gateway alone (the app runs it too)
+  magpie serve [--web[=host:port]] [--tls-cert <file> --tls-key <file>]
+                                  run the gateway alone (the app runs it too); --web serves magpie web's page too, from the same process (127.0.0.1:3430 unless told);
+                                  with a certificate and key (PEM; MAGPIE_TLS_CERT, MAGPIE_TLS_KEY) other computers reach both over https://
+  magpie daemon [install|uninstall|start|stop|restart|status]
+                                  magpie serve as a service of yours, from boot or login and started again when it stops (systemd --user on Linux, launchd on the Mac)
+  magpie daemon install [--web] [--lan] [--addr host:port] [--no-web] [--tls-cert <file> --tls-key <file>|--no-tls]
+                                  --web: the service serves magpie web's page too, with a key kept across restarts; installed again, it keeps what it served
+  magpie daemon web [on|off] [--lan] [--addr host:port]
+                                  the service's page: its link, or turn it on or off
   magpie healthcheck              exit 0 when the gateway answers (a container's HEALTHCHECK)
   magpie gateway-key list|add <name>|rotate <id>|remove <id>   manage the keys clients use to call a shared gateway
-  magpie gateway-key limit <id> [off|reset|day|week|month|<N>d --tokens N --cost USD --cache-reads]   a key's own limit, and what it used
+  magpie gateway-key limit <id> [list|off|reset [n]|remove <n>|[add] day|week|month|<N>d|<N>h --tokens N --cost USD --cache-reads]   a key's own limits, and what it used
   magpie gateway-key models <id> [all|<provider>/<model>|<provider>/* ...]   the models a key may use, every one unless it names some
+  magpie gateway-key quotas <id> [on|off]   whether a key held to a budget, models or accounts is told the quotas of what it may use
   magpie mcp image                the image and video generation MCP server an agent is given from the library (stdio)
   magpie usage [today|7d|30d|all] tokens and cost per agent, model and subscription account (30d)
   magpie usage --csv [--account <name>] [today|7d|30d|all]   every request as CSV (or one account's): the model asked for, sent and served, tokens, cost, time, status, account
+  magpie usage [--csv [--account <name>]] --last <dur>|--days <n>   the same for a window ending now (24h, 90m, 1.5 days), not from a midnight
   magpie sessions [--model <m>] [--folder <f>] [--json]   the latest Claude Code, Codex, OpenCode and Pi sessions, with what each cost
   magpie sessions --days N|today|all [--model <m>] [--folder <f>] [--json]
                                   what every session spent, day by day, with the top models and folders (7 days)
@@ -118,6 +131,7 @@ const usage = `magpie — one place to pick every agent's model
                                   block until that subscription (any of its accounts) or account has allowance again
   magpie quota history [<provider|account>] [--days N] [--json]
                                   each window's readings over time, kept 45 days
+  magpie statusline [<provider|account>]   one line for Claude Code's status line: the session's model and each account's windows
   magpie sync                     refresh the model catalog and vendor model lists
   magpie agents                   list every supported agent
   magpie update [check] [--proxy <url>] [--mirror <prefix>]
@@ -125,7 +139,9 @@ const usage = `magpie — one place to pick every agent's model
                                   http(s):// or socks5:// proxy for it; --mirror: a GitHub download mirror put
                                   before the github.com URL (none unless given; still checked against usemagpie.ai's SHA-256)
   magpie update mirror [<prefix>|off]  the mirror every update, the app's own too, is downloaded through
-  magpie update auto [on|off] [30m|1h|6h|24h]  whether the app looks for updates by itself, and how often (6h)
+  magpie update auto [on|off] [download|notify] [30m|1h|6h|24h]
+                                  whether the app looks for updates by itself, how often (6h), and whether
+                                  it downloads one at once or only says it is out (notify: for metered networks)
 
 agents: claude (cc), codex, gemini, opencode (oc), mimocode, deveco, pi, goose, cursor, zed, copilot, crush, aside
 `
@@ -221,6 +237,15 @@ func run(args []string) error {
 	update.AwaitPredecessor()
 	makeDirs()
 	settings.Migrate()
+	// a new install starts with the Essentials preset of built-in plugins
+	// (plugins.yml), one that ran before with all of them, told by no file
+	// of a magpie run before: so before anything below writes one
+	if _, err := pluginrt.Settle(!settings.RanBefore()); err != nil {
+		fmt.Fprintf(os.Stderr, "magpie: plugins.yml: %v\n", err)
+	}
+	if _, err := pluginrt.Refresh(); err != nil {
+		fmt.Fprintf(os.Stderr, "magpie: plugins.yml: %v\n", err)
+	}
 	// the providers and settings read once for every agent's fields, which
 	// the moves below look at (a write among them reads them again)
 	release := provider.Hold()
@@ -247,6 +272,9 @@ func run(args []string) error {
 	// and Cursor Private Inference's variables, which the Mac's launchd
 	// forgets at a restart, for the gateway's address now
 	gateway.WhileServing = append(gateway.WhileServing, agent.KeepCursorLocalEnv)
+	// and Claude Science's daemon, which a restart of the computer ends,
+	// started on the gateway again while it is connected
+	gateway.WhileServing = append(gateway.WhileServing, agent.KeepClaudeScience)
 	// and the request archive, when it is on, goes to the bucket sync is to
 	gateway.ArchiveBucket = func() (gateway.Putter, bool) {
 		if b, ok := davsync.S3Bucket(); ok {
@@ -291,6 +319,8 @@ func run(args []string) error {
 		return runPanel()
 	case "autostart":
 		return autostartCmd(args[1:])
+	case "daemon":
+		return daemonCmd(args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(distribution.CLIHelp(usage))
 		return nil
@@ -335,7 +365,7 @@ func run(args []string) error {
 	case "group":
 		return groupCmd(args)
 	case "serve":
-		return serve()
+		return serveCmd(args[1:])
 	case "gateway-key":
 		return gatewayKeys(args)
 	case "accounts", "account":
@@ -346,6 +376,8 @@ func run(args []string) error {
 		return sessionsCmd(args)
 	case "quota", "quotas":
 		return quotaCmd(args)
+	case "statusline":
+		return statuslineCmd(args)
 	case "update":
 		return updateCmd(args)
 	case "library", "lib":
@@ -360,6 +392,8 @@ func run(args []string) error {
 		return pluginCmd(args)
 	case "s3":
 		return s3Cmd(args[1:])
+	case "github":
+		return githubCmd(args[1:])
 	case "mcp":
 		return imagemcp.Run(args[1:])
 	case "claude-code":
@@ -381,6 +415,10 @@ func run(args []string) error {
 		// `magpie cindy`: it takes magpie through its own link, confirmed there
 		if len(args) > 1 {
 			link := a.Import()
+			if link == "" {
+				// Lody takes only a gateway on this computer's loopback
+				return fmt.Errorf("%s takes magpie only at a loopback address, and the gateway is at %s: nothing was opened", a.Name, gateway.URL())
+			}
 			openInBrowser(link)
 			fmt.Println(green.Render("✓"), bold.Render(a.Name), muted.Render("opened to add magpie — confirm it there"))
 			fmt.Println(muted.Render("  " + link))
@@ -441,7 +479,11 @@ func set(a *agent.Agent, key, value string) error {
 		return err
 	}
 	before := f.Get()
-	if err := a.Apply(f.Key, value); err != nil {
+	wired := a.Wired()
+	// a magpie model picked on an agent not connected yet connects it
+	// first, as the Agents page's picker does (#1900): the agent is wired
+	// in, and Disconnect puts back what it had before
+	if err := a.Pick(f.Key, value); err != nil {
 		return err
 	}
 	// what the config reads now, not what was asked: an agent may name the
@@ -456,7 +498,14 @@ func set(a *agent.Agent, key, value string) error {
 		shown += " " + muted.Render("(unchanged)")
 	}
 	fmt.Println(green.Render("✓"), bold.Render(a.Name), muted.Render(f.Label), shown)
-	if a.Notice != nil {
+	// a value that is the agent's own, not one of magpie's, takes magpie
+	// out: said, as Disconnect is, with the way back (#2000: magpie claude
+	// sonnet put Claude Code back on its DeepSeek endpoint, which refused
+	// Sonnet, and only "✓ Claude Code model sonnet" was printed)
+	if wired && now != "" && !a.Wired() {
+		fmt.Println(muted.Render(fmt.Sprintf("  disconnected from magpie: %s is %s's own, sent to the endpoint it had before magpie; magpie %s <model> with one of magpie's models connects it again", now, a.Name, a.ID)))
+	}
+	if a.Notice != nil && (!f.Live || !wired && a.Wired()) {
 		if n := a.Notice(); n != "" {
 			fmt.Println(muted.Render("  ↻ " + n))
 		}
@@ -573,6 +622,11 @@ func list(agents []*agent.Agent, detectedOnly bool, dimFrom int) error {
 			r.name = faint.Render(a.Name)
 			r.vals = faint.Render("not detected")
 			r.path = ""
+		} else if a.CLIMissing() {
+			// its folder left by an uninstall (#2173): what it holds is
+			// read by nothing
+			r.name = faint.Render(a.Name)
+			r.vals = faint.Render("CLI not found")
 		} else {
 			vals := a.Values()
 			dim := dimFrom >= 0 && i >= dimFrom

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -103,7 +104,9 @@ const groupUsage = `usage:
            auto    as a turn begins, the group's classifier — Jev, from a TypeSafe provider
                    (magpie provider add typesafe key=…), or any model, as Jev Router on OpenRouter,
                    asked in words — rates how hard it is, and the turn's requests
-                   reason at low, medium, high or xhigh; only those the agent asked to reason
+                   reason at low, medium, high or xhigh in place of the agent's level; only those
+                   the agent asked to reason, never one it turned off (none). A route's effort
+                   is what the agent asked, each try's what its model was sent
 
   e.g. magpie group add "Opus anywhere" models=claude/claude-opus-5-5,copilot/claude-opus-5.5 routing=order
        magpie group set opus-anywhere stays=session models+=openrouter/anthropic/claude-opus-5.5
@@ -144,7 +147,11 @@ var staysNames = []struct {
 }
 
 func parseRouting(v string) (string, error) {
-	v = strings.ToLower(strings.TrimSpace(v))
+	v = strings.TrimSpace(v)
+	if provider.PluginRouting(v) { // a gateway plugin's
+		return v, nil
+	}
+	v = strings.ToLower(v)
 	var names []string
 	for _, r := range routingNames {
 		if v == r.value || v == r.name || slices.Contains(r.also, v) {
@@ -152,7 +159,7 @@ func parseRouting(v string) (string, error) {
 		}
 		names = append(names, r.name)
 	}
-	return "", fmt.Errorf("routing %q is not one magpie has: %s", v, strings.Join(names, ", "))
+	return "", fmt.Errorf("routing %q is not one magpie has: %s, or <plugin>/<name> for a gateway plugin's", v, strings.Join(names, ", "))
 }
 
 func parseStays(v string) (string, error) {
@@ -167,13 +174,15 @@ func parseStays(v string) (string, error) {
 	return "", fmt.Errorf("stays %q is not one magpie has: %s", v, strings.Join(names, ", "))
 }
 
+// routingName is what the CLI calls routing v: a plugin's, or one it
+// doesn't know, as it is.
 func routingName(v string) string {
 	for _, r := range routingNames {
 		if r.value == v {
 			return r.name
 		}
 	}
-	return "smart"
+	return v
 }
 
 func staysName(v string) string {
@@ -187,6 +196,35 @@ func staysName(v string) string {
 
 func splitList(v string) []string {
 	return strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' })
+}
+
+// splitIDs splits a list of model ids at commas, each trimmed: an id can
+// hold a space ("Opus 5.5" on a relay, #1976), which splitList would cut in
+// two. An item with a space in it that whole doesn't take (no model the
+// group can have) is split at its spaces, as such a list was before; with
+// whole nil, never.
+func splitIDs(v string, whole func(string) bool) []string {
+	var out []string
+	for _, id := range strings.Split(v, ",") {
+		if id = strings.TrimSpace(id); id == "" {
+			continue
+		}
+		if whole != nil && strings.ContainsFunc(id, unicode.IsSpace) && !whole(id) {
+			out = append(out, strings.Fields(id)...)
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+// inGroup: whether v names one of members, as pickMember finds it
+func inGroup(members []string) func(string) bool {
+	return func(v string) bool {
+		v, _ = provider.MemberFast(v)
+		_, err := pickMember(members, v)
+		return err == nil
+	}
 }
 
 // memberResolver spells a model the user typed as the catalog's
@@ -332,7 +370,7 @@ func applyGroupPairs(g *provider.Group, pairs []string, resolve func(string) (st
 	members := func(v string) ([]string, error) {
 		var out []string
 		patterns = nil
-		for _, m := range splitList(v) {
+		for _, m := range splitIDs(v, func(m string) bool { _, err := resolve(m); return err == nil }) {
 			if provider.IsPattern(m) {
 				ps, err := provider.CleanPatterns([]string{m})
 				if err != nil {
@@ -390,7 +428,7 @@ func applyGroupPairs(g *provider.Group, pairs []string, resolve func(string) (st
 				}
 			}
 		case "models-", "members-", "model-":
-			for _, m := range splitList(v) {
+			for _, m := range splitIDs(v, inGroup(g.Members)) {
 				if provider.IsPattern(m) {
 					m = strings.TrimPrefix(strings.TrimSpace(m), "magpie/")
 					i := slices.Index(g.Match, m)
@@ -472,7 +510,7 @@ func applyGroupPairs(g *provider.Group, pairs []string, resolve func(string) (st
 			// the members sent in their vendor's fast mode, as they are in
 			// the group
 			g.Fast = nil
-			for _, m := range splitList(v) {
+			for _, m := range splitIDs(v, inGroup(g.Members)) {
 				m, _ = provider.MemberFast(m)
 				id, perr := pickMember(g.Members, m)
 				if perr != nil {
@@ -486,7 +524,10 @@ func applyGroupPairs(g *provider.Group, pairs []string, resolve func(string) (st
 			if strings.TrimSpace(v) == "" {
 				g.Weights = nil
 			}
-			for _, mw := range splitList(v) {
+			for _, mw := range splitIDs(v, func(mw string) bool {
+				at := strings.LastIndex(mw, "=")
+				return at > 0 && inGroup(g.Members)(mw[:at])
+			}) {
 				at := strings.LastIndex(mw, "=")
 				if at < 0 {
 					return fmt.Errorf("weight=<model>=<n>, as weight=%s=3, not %q", mw, mw)

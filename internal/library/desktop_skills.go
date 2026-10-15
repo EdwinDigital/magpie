@@ -31,6 +31,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/yetone/magpie/internal/desktopdir"
+	"github.com/yetone/magpie/internal/dirent"
 	"github.com/yetone/magpie/internal/edit"
 )
 
@@ -51,13 +52,13 @@ func desktopSkillRoots(desktopDir string) []string {
 		base := filepath.Join(d, "local-agent-mode-sessions", "skills-plugin")
 		orgs, _ := os.ReadDir(base)
 		for _, o := range orgs {
-			if !o.IsDir() {
+			if !dirent.IsFolder(base, o) {
 				continue
 			}
 			accts, _ := os.ReadDir(filepath.Join(base, o.Name()))
 			for _, a := range accts {
 				p := filepath.Join(base, o.Name(), a.Name())
-				if a.IsDir() && (isFile(filepath.Join(p, desktopManifest)) || isFile(filepath.Join(p, ".claude-plugin", "plugin.json"))) {
+				if dirent.IsFolder(filepath.Join(base, o.Name()), a) && (isFile(filepath.Join(p, desktopManifest)) || isFile(filepath.Join(p, ".claude-plugin", "plugin.json"))) {
 					out = append(out, p)
 				}
 			}
@@ -276,15 +277,24 @@ func (l *Library) syncDesktopSkills(t *Target, res *Result) {
 			p := filepath.Join(dir, s.Name)
 			if ours(p, s.Name) {
 				keep(s.Name)
+				current := false
+				if !linked(p) {
+					var err error
+					current, err = copyIsFresh(p, l.libHash(s.Name), false)
+					if err != nil {
+						res.fail(id, "skill:"+s.Name, err)
+						continue
+					}
+				}
 				switch {
-				case linked(p) || !fresh(p, s.Name) && !desktopEdited(p):
+				case linked(p) || !current && !desktopEdited(p):
 					if err := desktopCopy(p, s.Name); err != nil {
 						res.fail(id, "skill:"+s.Name, err)
 						continue
 					}
 					put[s.Name] = true
 					res.changed(id)
-				case !fresh(p, s.Name):
+				case !current:
 					res.Problems = append(res.Problems, Problem{Agent: id, What: "skill:" + s.Name,
 						Error: fmt.Sprintf("%s was changed in Claude Desktop, so the library's copy isn't put over it: delete it in Desktop to have the library's again", s.Name)})
 				}

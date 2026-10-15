@@ -55,14 +55,23 @@ async function press(page, loc, method = "click") {
     for (let p = e.parentElement; p; p = p.parentElement) if (p.matches(".view,.enterprise-selection-list")) out.unshift(p.id ? "#" + p.id : ".enterprise-selection-list");
     return out;
   });
-  for (const selector of scrollers) {
-    const s = page.locator(selector).first();
-    const b = await s.boundingBox(), target = await loc.boundingBox();
-    const top = Math.max(b.y, 100), bottom = Math.min(b.y + b.height, page.viewportSize().height - 36);
-    if (target.y < top + 8 || target.y + target.height > bottom - 8) {
-      await page.mouse.move(b.x + 3, (top + bottom) / 2);
-      await page.mouse.wheel(0, target.y - (top + bottom) / 2);
-      await page.waitForTimeout(300);
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const ready = await loc.evaluate(e => {
+      const r = e.getBoundingClientRect(), head = document.querySelector("#view-settings .set-head").getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return r.top >= head.bottom + 4 && r.bottom <= innerHeight - 36 && (hit === e || e.contains(hit));
+    });
+    if (ready) return loc[method]();
+    for (const selector of scrollers) {
+      const s = page.locator(selector).first();
+      const b = await s.boundingBox(), target = await loc.boundingBox();
+      const header = await page.locator("#view-settings .set-head").boundingBox();
+      const top = Math.max(b.y, header.y + header.height), bottom = Math.min(b.y + b.height, page.viewportSize().height - 36);
+      if (target.y < top + 8 || target.y + target.height > bottom - 8) {
+        await page.mouse.move(b.x + 3, (top + bottom) / 2);
+        await page.mouse.wheel(0, Math.max(-180, Math.min(180, target.y - (top + bottom) / 2)));
+        await page.waitForTimeout(50);
+      }
     }
   }
   await loc[method]();

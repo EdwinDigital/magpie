@@ -68,7 +68,7 @@ func GatewaySessionByID(agent, id string, nativeKeys map[string]bool) (GatewaySe
 	if id == "" {
 		return GatewaySession{}, false
 	}
-	agent = AgentOf(agent)
+	agent = ReportedAs(agent)
 	if nativeKeys[agent+"|"+id] {
 		return GatewaySession{}, false
 	}
@@ -171,7 +171,7 @@ func gatewayDays(ss []GatewaySession) []GatewayDayUsage {
 }
 
 func buildGatewaySessions(snapshot *logSnapshot, since time.Time, nativeKeys map[string]bool) ([]GatewaySession, []GatewayDayUsage) {
-	priceOf := pricer()
+	priceOf := Pricer()
 	type key struct{ agent, id string }
 	groups := map[key]*GatewaySession{}
 	models := map[key]map[string]*GatewayModel{}
@@ -182,7 +182,7 @@ func buildGatewaySessions(snapshot *logSnapshot, since time.Time, nativeKeys map
 		if r.IsRejected() || r.IsReported() || r.Session == "" {
 			return
 		}
-		a := AgentOf(r.Agent)
+		a := ReportedAs(r.Agent)
 		k := key{a, r.Session}
 		if nativeKeys != nil && nativeKeys[a+"|"+r.Session] {
 			return

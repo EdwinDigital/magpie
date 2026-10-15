@@ -48,3 +48,24 @@ test("all enterprise form labels and action text have four non-English translati
     assert.equal(vm.runInContext(`Object.hasOwn(I18N[${JSON.stringify(lang)}], ${JSON.stringify(key)})`, context), true, `${lang}: ${key}`);
   }
 });
+
+test("main's plugin pages and tray guidance retain the enterprise display brand", () => {
+  const context = vm.createContext({ window: { enterpriseAppName: "Acme Assistant" } });
+  for (const file of ["enterprise-brand.js", "i18n.js"]) vm.runInContext(fs.readFileSync(path.resolve(__dirname, "../assets", file), "utf8"), context);
+  const { I18N } = require("./strings.cjs").strings();
+  context.words = I18N;
+  vm.runInContext("for (const [lang, entries] of Object.entries(words)) Object.assign(I18N[lang] ||= {}, entries)", context);
+  for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) {
+    vm.runInContext(`locale = ${JSON.stringify(lang)}`, context);
+    for (const key of [
+      "Parts of magpie not everyone needs. Switched off, a part leaves the sidebar, its pages and Settings; magpie works the same either way.",
+      "The model Magpie Image draws with. Agents get the Magpie Image tool from the Library, which is turned off in Plugins › Built-in; images are saved in their project",
+      "Show your subscriptions' allowances, or the tokens and cost of today or the last 7 days, beside magpie's icon in the menu bar, side by side, refreshed every few minutes",
+      "None of magpie's models is left in {agent}'s model list: pick one, then connect {agent}",
+    ]) {
+      const text = vm.runInContext(`t(${JSON.stringify(key)}, { agent: "Codex" })`, context);
+      assert.equal(/magpie/i.test(text), false, lang + ": " + text);
+      assert(text.includes("Acme Assistant"), lang + ": " + text);
+    }
+  }
+});

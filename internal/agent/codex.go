@@ -2,11 +2,10 @@ package agent
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,6 +21,7 @@ import (
 	"github.com/yetone/magpie/internal/codexcat"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/gateway"
+	"github.com/yetone/magpie/internal/lastgood"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/sessions"
 	"github.com/yetone/magpie/internal/settings"
@@ -205,6 +205,28 @@ func codexEfforts(ms []catalog.Model, model string) []Option {
 	return append([]Option{d}, static(e...)...)
 }
 
+// catalogParses is whether b is a model list magpie writes for Codex, the
+// shape Keep reads of the file there.
+func catalogParses(b []byte) bool {
+	var v struct {
+		Models []map[string]any `json:"models"`
+	}
+	return json.Unmarshal(b, &v) == nil
+}
+
+// writeOwnList writes the model list magpie keeps for Codex at path. A file
+// there that doesn't parse is copied aside first: Keep (#1450) holds
+// nothing of a file it can't read, so writing the new list over one would
+// end the keys the user added by hand with no copy (#2263's rule for
+// magpie's state files, which this file had missed). An error stops the
+// write.
+func writeOwnList(path string, b []byte) error {
+	if err := lastgood.KeepUnparsed(path, catalogParses); err != nil {
+		return err
+	}
+	return edit.WriteAtomic(path, b)
+}
+
 func codexIn(at place) *Agent {
 	dir := at.codexHome()
 	path := filepath.Join(dir, "config.toml")
@@ -258,11 +280,20 @@ func codexIn(at place) *Agent {
 		}
 		b := list()
 		if string(codexcat.Keep(cur, b)) == string(b) {
+			// one that doesn't parse is copied aside before it goes: Keep
+			// held nothing of it, so removing it outright would end the
+			// user's own keys with no copy
+			if err := lastgood.KeepUnparsed(catalogPath, catalogParses); err != nil {
+				return
+			}
 			os.Remove(catalogPath)
 		}
 	}
 	asProvider := func() bool { return get("model_provider") == magpieID }
-	viaBase := func() bool { return isCodexGatewayOn(get("openai_base_url"), at.host()) }
+	viaBase := func() bool {
+		u := get("openai_base_url")
+		return isCodexGatewayOn(u, at.host()) || strings.TrimSuffix(u, "/") == at.codexURL()
+	}
 	routed := func() bool { return asProvider() || viaBase() }
 	// joined: connected by Join, on a model of Codex's own (its last pick)
 	// with magpie's beside it, by the base URL
@@ -278,7 +309,18 @@ func codexIn(at place) *Agent {
 	// discovery off (#1535) auth.json stays unread, and Codex is taken to be
 	// as magpie last wired it, beside a ChatGPT sign-in or not, so turning
 	// discovery off never rewires Codex by itself.
+	//
+	// A Codex that reaches the gateway from another machine (a WSL distro
+	// under NAT, or MAGPIE_ADDR pinned beyond loopback) is wired as one
+	// with no ChatGPT sign-in: beside its sign-in it would send the gateway
+	// its ChatGPT token, and from there the gateway takes a named key
+	// alone, so every request was a 401 (#2145, lazydao). With magpie as
+	// its provider it sends the key magpie gives it (gwKey); its own models
+	// still go straight to OpenAI on its sign-in.
 	chatGPT := func() bool {
+		if onAnotherMachine(at.gw()) {
+			return false
+		}
 		if settings.AccountDiscoveryOff() {
 			return joined() || beside()
 		}
@@ -310,7 +352,7 @@ func codexIn(at place) *Agent {
 		case asProvider() && ownCatalog(get("model_catalog_json")):
 			b := ownList()
 			if cur, _ := edit.Read(catalogPath); string(cur) != string(b) {
-				return edit.WriteAtomic(catalogPath, b)
+				return writeOwnList(catalogPath, b)
 			}
 		case viaBase():
 			return codexStaleCache(filepath.Join(dir, "models_cache.json"), provider.CodexListTag())
@@ -720,7 +762,10 @@ func codexIn(at place) *Agent {
 		if p != "" && p != "openai" && !mirror {
 			return nil
 		}
-		on := !disconnected() && codexFailover()
+		// a Codex that reaches the gateway from another machine is never
+		// pointed at the Codex path: the gateway takes a named key there,
+		// so the turn failover handed it came back a 401 (#2145)
+		on := !disconnected() && codexFailover() && !onAnotherMachine(at.gw())
 		// failover is magpie's own idea, not the user's: never handed
 		// Codex's requests while a proxy they'd go through doesn't pass
 		// them on to magpie, which would have every turn fail with 502
@@ -964,7 +1009,7 @@ func codexIn(at place) *Agent {
 			if err := putProvider(); err != nil {
 				return err
 			}
-			if err := edit.WriteAtomic(catalogPath, ownList()); err != nil {
+			if err := writeOwnList(catalogPath, ownList()); err != nil {
 				return err
 			}
 			// a thread started on Codex's built-in provider stays on it when
@@ -1119,7 +1164,13 @@ func codexIn(at place) *Agent {
 			}
 			return true, settle()
 		},
-		Joined:      joined,
+		// joined as the GUI and drift tell it: Codex's own models in its
+		// list beside magpie's. With magpie its provider (magpie API, or a
+		// ChatGPT account the Codex app holds) they are not, though the
+		// mark stays for Sync to put it back beside the sign-in: the
+		// Agents row said "its own models stay in /model" while the Codex
+		// app was meant to be in its API state (#2267)
+		Joined:      func() bool { return joined() && !asProvider() },
 		Beside:      beside,
 		Routed:      routed,
 		FailingOver: failingOver,
@@ -1194,7 +1245,7 @@ func codexIn(at place) *Agent {
 				}
 				b := ownList()
 				if cur, _ := edit.Read(catalogPath); string(cur) != string(b) {
-					if err := edit.WriteAtomic(catalogPath, b); err != nil {
+					if err := writeOwnList(catalogPath, b); err != nil {
 						return err
 					}
 				}
@@ -1213,6 +1264,14 @@ func codexIn(at place) *Agent {
 			// synced, a vendor's list fetched) keeps an effort it takes
 			if isMagpie(get("model")) {
 				return settle()
+			}
+			// on a model of Codex's own (the app's last pick), the app's
+			// picker still lists magpie's: the efforts they take now are
+			// offered there too. A group that came to take max kept only
+			// high in the app, with no control, while the config was on
+			// Codex's own model (#2127)
+			if routed() {
+				return codexEnableEfforts(path, magpieModels("codex"))
 			}
 			return nil
 		},
@@ -1628,20 +1687,20 @@ func codexGatewayURL() string { return gateway.URL() + gateway.CodexPath }
 // address its config names when that is magpie's gateway on a host other
 // than this one's loopback (openai_base_url at the Codex path, or
 // [model_providers.magpie]'s base_url with magpie's key, that one first
-// while magpie is Codex's provider), else gateway.URL().
+// while magpie is Codex's provider), else gateway.URL(). It is http or
+// https, on any port or the scheme's own, and may have a path before
+// magpie's: a company's reverse proxy at https://ai.corp.example/magpie,
+// or one on this machine at http://127.0.0.1:8788/<route> (#1985).
 func codexKeptGateway(path string) string {
 	kept := func(u, suffix string) string {
-		u = strings.TrimSuffix(strings.TrimSpace(u), "/")
-		rest, ok := strings.CutPrefix(u, "http://")
-		if !ok || !strings.HasSuffix(rest, suffix) {
+		base, ok := strings.CutSuffix(strings.TrimSuffix(strings.TrimSpace(u), "/"), suffix)
+		if !ok || !onAnotherMachine(base) && !loopbackWithPath(base) {
 			return ""
 		}
-		hp := strings.TrimSuffix(rest, suffix)
-		h, _, err := net.SplitHostPort(hp)
-		if err != nil || h == "" || h == "127.0.0.1" || h == "localhost" || h == "::1" {
+		if p, err := url.Parse(base); err != nil || p.User != nil || p.RawQuery != "" || p.Fragment != "" {
 			return ""
 		}
-		return "http://" + hp
+		return base
 	}
 	base, _ := edit.GetTOMLTop(path, "openai_base_url")
 	var table string
@@ -1710,11 +1769,15 @@ func codexStaleCache(path, tag string) error {
 
 // codexUsedUp reports whether the ChatGPT account Codex is signed in to
 // is held by the Codex app, out of its allowance with no credits to go on
-// with (provider.CodexUsedUp). A var so tests can say.
+// with (provider.CodexUsedUpKnown). A var so tests can say.
+//
+// What is known is used, never a reading asked for here: this runs from
+// SyncCatalog, which a write's own request runs before it answers (a
+// routing group's Save), and asking waits on the vendor — 1.1s of a
+// user's Save. KeepOnAnAccountWithRoom asks on its own loop with the time
+// for it, and tells the catalog when the answer changes.
 var codexUsedUp = func() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return provider.CodexUsedUp(ctx)
+	return provider.CodexUsedUpKnown()
 }
 
 // codexFailover reports whether Codex is signed in to a ChatGPT account
@@ -1800,8 +1863,10 @@ func codexChatGPT(dir string) bool {
 			Access string `json:"access_token"`
 		} `json:"tokens"`
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "auth.json"))
-	if err != nil || json.Unmarshal(b, &a) != nil {
+	// auth.json, or the macOS keychain item when Codex's config.toml
+	// keeps the sign-in there (#2367)
+	b, ok := provider.CodexSignIn(dir)
+	if !ok || json.Unmarshal(b, &a) != nil {
 		return false
 	}
 	return a.Tokens.Access != ""

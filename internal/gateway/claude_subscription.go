@@ -652,16 +652,7 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	} else if hasReply(req.Messages) {
 		// no run had the conversation: this one is told it whole, in one
 		// message, its earlier turns marked as such (renderClaudePrompt)
-		images := 0
-		for _, m := range req.Messages {
-			for _, p := range m.Parts {
-				if p.Kind == Image {
-					images++
-				}
-				images += len(p.Images)
-			}
-		}
-		log.Printf("claude: a new Claude Code is told the whole conversation: %d messages, %d images, the last turn marked as the one to answer", len(req.Messages), images)
+		log.Printf("claude: a new Claude Code is told the whole conversation: %d messages, %d images, the last turn marked as the one to answer", len(req.Messages), countImages(req.Messages))
 	}
 	cmd := binary.command(context.Background(), args...)
 	cmd.Dir = work
@@ -2527,7 +2518,7 @@ func renderClaudePrompt(req *Request) ([]map[string]any, error) {
 			text.WriteString(historyOpen)
 		}
 		if split > 0 && i == split {
-			text.WriteString(historyClose)
+			text.WriteString(currentTurnOpen(req.Messages, split))
 		}
 		label := "Human"
 		if m.Role == "assistant" {
@@ -2582,6 +2573,40 @@ const (
 		"Images and files in it were sent with those earlier messages: none of them is new, and none needs answering again.\n\n"
 	historyClose = "</conversation_history>\n\n<current_turn>\nThe turn to answer now:\n\n"
 )
+
+// currentTurnOpen is historyClose for the turn of msgs from split on. Claude
+// Code notes each image of the message it is given ("[Image: source:
+// …/images/1.png]", where it keeps them, or the size it showed one at) in a
+// note of its own after the message, so after the turn to answer: told
+// nothing of them, the model took the history's images for ones sent with
+// that turn, said they were attached and opened them again (#1751). Where
+// the history has images, the turn says whose the notes are.
+func currentTurnOpen(msgs []Message, split int) string {
+	earlier, now := countImages(msgs[:split]), countImages(msgs[split:])
+	switch {
+	case earlier == 0:
+		return historyClose
+	case now == 0:
+		return "</conversation_history>\n\n<current_turn>\nThe turn to answer now. Any \"[Image: …]\" notes after it are about " +
+			"the images in the conversation history above, not images sent with this turn.\n\n"
+	}
+	return "</conversation_history>\n\n<current_turn>\nThe turn to answer now. Any \"[Image: …]\" notes after it are about " +
+		"the images above in their order: the conversation history's first, then this turn's.\n\n"
+}
+
+// countImages is how many images msgs carry, their tool results' among them.
+func countImages(msgs []Message) int {
+	n := 0
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == Image {
+				n++
+			}
+			n += len(p.Images)
+		}
+	}
+	return n
+}
 
 // historyEnd is where the turn to answer begins in msgs: the message after
 // the last reply that calls no tool. 0 when there is no such reply, or
@@ -2673,6 +2698,12 @@ func renderClaudeTurn(msgs []Message, tools []Tool) []map[string]any {
 func renderParts(blocks []map[string]any, text *strings.Builder, parts []Part, offered map[string]bool) []map[string]any {
 	open := "" // the tool result told last, not closed yet
 	for _, p := range parts {
+		if open != "" && p.Kind == Text && agentNotice(p.Text) {
+			// the agent's notice (a hook's output, a token count) closes
+			// the result but is not the user's (#2060)
+			fmt.Fprintf(text, "\n[end of tool result id=%s]\n\n", open)
+			open = ""
+		}
 		if open != "" && (p.Kind == Text || p.Kind == File) {
 			fmt.Fprintf(text, "\n[end of tool result id=%s]\n\n[user message]\n", open)
 			open = ""
@@ -2957,11 +2988,44 @@ func (r *subscriptionRun) offers(tools []Tool) bool {
 	return true
 }
 
+// untold is how many of tools the run's agent was never told of, and
+// their names, the first five and a count of the rest, for the log
+// (whyNoRun).
+func (r *subscriptionRun) untold(tools []Tool) (int, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.tools == nil {
+		return 0, ""
+	}
+	var names []string
+	for _, t := range tools {
+		if !r.tools[t.Name] {
+			names = append(names, t.Name)
+		}
+	}
+	n := len(names)
+	if n > 5 {
+		names = append(names[:5], fmt.Sprintf("%d more", n-5))
+	}
+	return n, strings.Join(names, ", ")
+}
+
 // saidWithResults is the user's words after tool results in the messages
 // since the last reply: a message the user sent while a tool ran (#872),
 // or what a request forked from the conversation asks (Claude Code's
 // AgentSummary, #1878). The words of a message with images go with the
 // results (match), as before. "" when there are no results, or no words.
+//
+// What the client's agent put in beside the results is not the user's
+// (#2060): Claude Code's hooks' notices ("PreToolUse:Read hook additional
+// context: …"), its <total_tokens> count, its other notices (agentNotice).
+// Told to the run as the user's, the model was told after nearly every
+// call that the user had sent a message, of a hook's output or of nothing
+// (the run's Claude Code doesn't show a bare <total_tokens>). Claude Code
+// 2.1.296 sends them as one {role: "system"} message after the results,
+// with a message the user sent mid-turn among them (midTurnSaid): only
+// those words are the user's. A system message is never the user's
+// otherwise.
 func saidWithResults(msgs []Message) string {
 	i := len(msgs)
 	for i > 0 && msgs[i-1].Role != "assistant" {
@@ -2975,7 +3039,11 @@ func saidWithResults(msgs []Message) string {
 			switch {
 			case p.Kind == ToolResult:
 				results = true
-			case p.Kind == Text && results && !captions && strings.TrimSpace(p.Text) != "":
+			case p.Kind != Text || !results || captions:
+			case midTurnHead.MatchString(p.Text):
+				said = append(said, midTurnSaid(p.Text)...)
+			case m.Role == "system" || m.Role == "developer":
+			case !agentNotice(p.Text):
 				said = append(said, p.Text)
 			}
 		}
@@ -2984,6 +3052,64 @@ func saidWithResults(msgs []Message) string {
 		return ""
 	}
 	return strings.Join(said, "\n\n")
+}
+
+var (
+	// midTurnHead heads a message the user sent while a tool ran, as
+	// Claude Code tells its model one: "The user sent a new message while
+	// you were working:" (2.1.296), "The user sent the following message:"
+	// (older).
+	midTurnHead = regexp.MustCompile(`The user sent (?:a new message while you were working|the following message):[ \t]*\n`)
+	// midTurnEnd is where the user's words after midTurnHead end: Claude
+	// Code's ask to address them, the reminder's end, or a notice of its
+	// own after them.
+	midTurnEnd = regexp.MustCompile(`\n\n(?:This is how Claude Code surfaces messages the user sends mid-turn|IMPORTANT: After completing your current task, you MUST address the user's message above|Please address this message and continue with your tasks)|</system-reminder>|\n\n<total_tokens>|\n\n` + hookNoticeLead)
+	// hookNotice is a Claude Code hook's output told to the model:
+	// "PreToolUse:Read hook additional context: …", "SessionStart hook
+	// success: …", "Stop hook blocking error from command: …". Only
+	// these kinds: "Stop hook is broken: …" may be the user's.
+	hookNoticeLead = `[A-Z][A-Za-z]+(?::\S+)? hook (?:additional context|success|blocking error(?: from command)?|stopped continuation|feedback):`
+	hookNotice     = regexp.MustCompile(`^` + hookNoticeLead)
+	// tokenCount is Claude Code's count of the tokens left, or used.
+	tokenCount = regexp.MustCompile(`^(?:<total_tokens>[^<]*</total_tokens>|Token usage: \S+; \S+ remaining)$`)
+	// reminderTag is a <system-reminder> tag, open or close.
+	reminderTag = regexp.MustCompile(`</?system-reminder(?:\s[^>]*)?>`)
+)
+
+// midTurnSaid is the user's words in each message they sent mid-turn
+// that text tells, without what Claude Code tells its model around them.
+func midTurnSaid(text string) []string {
+	var said []string
+	at := midTurnHead.FindAllStringIndex(text, -1)
+	for k, h := range at {
+		rest := text[h[1]:]
+		if k+1 < len(at) {
+			rest = text[h[1]:at[k+1][0]]
+		}
+		if e := midTurnEnd.FindStringIndex(rest); e != nil {
+			rest = rest[:e[0]]
+		}
+		if w := strings.TrimSpace(rest); w != "" {
+			said = append(said, w)
+		}
+	}
+	return said
+}
+
+// agentNotice says a text after tool results is the agent's, not words
+// of the user's: empty within its reminder tags, or a hook's notice, a
+// token count, or a notice userWords knows (injected).
+func agentNotice(text string) bool {
+	t := strings.TrimSpace(reminderTag.ReplaceAllString(text, ""))
+	if t == "" || hookNotice.MatchString(t) || tokenCount.MatchString(t) {
+		return true
+	}
+	for _, lead := range injected {
+		if strings.HasPrefix(t, lead) {
+			return true
+		}
+	}
+	return false
 }
 
 // withImages says m has an image of its own, not in a tool result.
@@ -3402,7 +3528,16 @@ func (r *subscriptionRun) drain() {
 	}
 }
 
-func (r *subscriptionRun) abort() {
+// stopGrace is how long Claude Code is given to clean up after it is asked
+// to end, before its tree is killed: it removes an OAuth refresh lock it
+// holds as it exits, which a SIGKILL left for the next requests to wait on
+// (#2195). Claude Code 2.1.299 exits within half a second of SIGTERM.
+const stopGrace = 5 * time.Second
+
+// abort ends the run: Claude Code is asked to end (proc.Tree.Stop) and its
+// tree killed if it hasn't within stopGrace. The run counts as ended at
+// once. The channel closes once the tree is.
+func (r *subscriptionRun) abort() <-chan struct{} {
 	r.mu.Lock()
 	t := r.tree
 	if t != nil && r.exited != nil {
@@ -3413,11 +3548,15 @@ func (r *subscriptionRun) abort() {
 		}
 	}
 	r.mu.Unlock()
+	var stopped <-chan struct{} = closedChan
 	if t != nil {
-		t.Kill()
+		stopped = t.Stop(stopGrace)
 	}
 	r.finish()
+	return stopped
 }
+
+var closedChan = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
 
 // abortFor is abort, why kept for the log of a turn that finds the run
 // gone (whyNoRun); the first reason given is the one kept.
@@ -3439,8 +3578,14 @@ func (b *subscriptionBridge) abortAll() {
 		runs = append(runs, run)
 	}
 	b.mu.Unlock()
+	// each asked at once, then waited for: a Claude Code magpie exits
+	// under is not left to be killed by no one
+	stops := make([]<-chan struct{}, 0, len(runs))
 	for _, run := range runs {
-		run.abort()
+		stops = append(stops, run.abort())
+	}
+	for _, s := range stops {
+		<-s
 	}
 }
 
@@ -3541,6 +3686,12 @@ func ownerAccount(owner string) (user string, own bool) {
 // is told the whole conversation (#1638): a run of the conversation waits
 // under another key or at an earlier turn, or is busy, or it ended and
 // why, or none had it.
+//
+// A run whose conversation the client sent back rewritten (Alma, #912)
+// and whose Claude Code wasn't told a tool the client offers now is named
+// by those tools (#2375): its conversation is no longer the one the run
+// had, so none of the conversation's keys is the run's, and the line said
+// no run had ever had it.
 func (b *subscriptionBridge) whyNoRun(req *Request, owner string) string {
 	key, _ := nextTurn(req, owner)
 	if key == "" {
@@ -3549,6 +3700,11 @@ func (b *subscriptionBridge) whyNoRun(req *Request, owner string) string {
 	keys := conversationKeys(owner, req.Messages)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if r, _ := b.rewritten(req, owner); r != nil {
+		if n, names := r.untold(req.Tools); n > 0 {
+			return fmt.Sprintf("its run waits under another key: the client offers %d tool(s) its Claude Code wasn't told of (%s), and a run is told its tools when it starts", n, names)
+		}
+	}
 	for _, r := range b.idle {
 		if r.behindKey == key {
 			return "its run went on with a turn this one doesn't follow, and wasn't taken back"
@@ -3831,6 +3987,32 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, from 
 	})
 }
 
+// bridgeFailed is the status and words a client is answered with when an
+// agent's run ended in an error before any answer: the status the agent
+// got, else a guess from the words, else 502.
+//
+// Claude Code says "Prompt is too long" with no status when its own check
+// turned the conversation away before asking Anthropic (#2162). That is a
+// conversation that no longer fits, not an upstream fault: as a 502 a
+// client such as pi neither compacts nor shows why. It is a 400, as
+// Anthropic's own too-long answer is, and says whose check it was and
+// what lowers it. Claude Code holds a subscription to 200K once Anthropic
+// has said the account needs extra usage for long context, whatever the
+// model's window.
+func bridgeFailed(name, msg string, status int) (int, string) {
+	switch {
+	case status >= 400:
+		return status, msg
+	case quotaSaid(msg):
+		return 429, msg
+	case name == "Claude Code" && tooLong(400, msg):
+		return 400, msg + " (Claude Code's own check, before Anthropic was asked: it holds a conversation to its own limit for the account, " +
+			"200K once Anthropic has said the account needs extra usage for long context. " +
+			"Compact the conversation, or turn on extra usage for the Claude account.)"
+	}
+	return 502, msg
+}
+
 // relay answers the client with a reply's events: abort is called when
 // there is no answer to give, ended when one was given, before its last
 // event goes out.
@@ -3840,14 +4022,24 @@ func relay(w http.ResponseWriter, r *http.Request, from provider.Protocol, name 
 	if stream {
 		// an error before any of the answer — out of quota, rate limited —
 		// is a status, not a stream, so another account can take over
+		// — unless the provider is heard from first with nothing of the
+		// answer yet, queued or thinking (KAlive): the client is then
+		// sent the reply's start and kept alive while it waits, as a
+		// translated stream's is, or Codex hangs up at its idle timeout
+		// with only comments heard (#2316)
 		var head []Event
+		alive := false
 		for ev := range events {
+			if ev.Kind == KAlive {
+				alive = true
+				break
+			}
 			head = append(head, ev)
 			if ev.Kind != KStart && ev.Kind != KUsage {
 				break
 			}
 		}
-		if n := len(head); n == 0 || head[n-1].Kind == KError {
+		if n := len(head); !alive && (n == 0 || head[n-1].Kind == KError) {
 			msg := name + " ended without an answer"
 			if n > 0 {
 				msg = head[n-1].Text
@@ -3856,12 +4048,7 @@ func relay(w http.ResponseWriter, r *http.Request, from provider.Protocol, name 
 			code := 502
 			if n > 0 {
 				usage.add(Usage{ErrType: head[n-1].Code, RequestID: head[n-1].RequestID})
-				// the status Claude Code got, else a guess from the words
-				if head[n-1].Status >= 400 {
-					code = head[n-1].Status
-				} else if quotaWords.MatchString(msg) {
-					code = 429
-				}
+				code, msg = bridgeFailed(name, msg, head[n-1].Status)
 			}
 			return writeError(w, from, code, name+": "+msg), msg
 		}
@@ -3873,6 +4060,11 @@ func relay(w http.ResponseWriter, r *http.Request, from provider.Protocol, name 
 		var failed, said, stop string
 		see := func(ev Event) {
 			switch ev.Kind {
+			case KAlive:
+				if sw.quiet() >= keepaliveGap {
+					enc.keepalive()
+				}
+				return
 			case KError:
 				failed = ev.Text
 			case KStart, KUsage:
@@ -3887,6 +4079,9 @@ func relay(w http.ResponseWriter, r *http.Request, from provider.Protocol, name 
 		}
 		for _, ev := range head {
 			see(ev)
+		}
+		if alive {
+			see(Event{Kind: KAlive})
 		}
 		// a client waiting on a reply that goes on is kept from its idle
 		// timeout while none of it comes (#436)
@@ -3916,14 +4111,9 @@ func relay(w http.ResponseWriter, r *http.Request, from provider.Protocol, name 
 	if col.err != "" && !saidAnything(col.res.Parts) {
 		abort()
 		// a status, as in a stream, so another account can take over
-		code := 502
 		usage.add(Usage{ErrType: col.errCode})
-		if col.errStatus >= 400 {
-			code = col.errStatus
-		} else if quotaWords.MatchString(col.err) {
-			code = 429
-		}
-		return writeError(w, from, code, name+": "+col.err), col.err
+		code, msg := bridgeFailed(name, col.err, col.errStatus)
+		return writeError(w, from, code, name+": "+msg), msg
 	}
 	ended(said, stop, col.err == "" && r.Context().Err() == nil)
 	if begin != nil {

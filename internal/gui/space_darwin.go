@@ -17,6 +17,25 @@ static int movesToActiveSpace(void *win) {
 	return (((NSWindow *)win).collectionBehavior & NSWindowCollectionBehaviorMoveToActiveSpace) != 0;
 }
 
+// On every Space and over a full-screen app's.
+static int joinsFullScreenSpaces(void *win) {
+	NSWindowCollectionBehavior b = ((NSWindow *)win).collectionBehavior;
+	return (b & NSWindowCollectionBehaviorCanJoinAllSpaces) != 0 && (b & NSWindowCollectionBehaviorFullScreenAuxiliary) != 0;
+}
+
+// A non-activating panel: shown and focused, it leaves the app that is
+// active so, and the Space the user is on with it.
+static int nonActivating(void *win) {
+	NSWindow *w = (NSWindow *)win;
+	return [w isKindOfClass:[NSPanel class]] && (w.styleMask & NSWindowStyleMaskNonactivatingPanel) != 0;
+}
+
+// Frontmost: the app whose menu bar shows, and whose Space the Mac goes
+// to. A non-activating panel made key leaves another app frontmost.
+static int appFrontmost(void) {
+	return [NSWorkspace sharedWorkspace].frontmostApplication.processIdentifier == NSProcessInfo.processInfo.processIdentifier;
+}
+
 // Ordered in and not in the Dock: on a Space of its own, or covered, it is
 // still open, where Wails' IsVisible (its occlusion state) says it isn't.
 static int windowOpen(void *win) {
@@ -71,6 +90,24 @@ func movesToActiveSpace(w *application.WebviewWindow) bool {
 	p := w.NativeWindow()
 	return p != nil && C.movesToActiveSpace(p) != 0
 }
+
+// joinsFullScreenSpaces says whether w is on every Space, a full-screen
+// app's too, as the quick panel is (#2141); on the main thread.
+func joinsFullScreenSpaces(w *application.WebviewWindow) bool {
+	p := w.NativeWindow()
+	return p != nil && C.joinsFullScreenSpaces(p) != 0
+}
+
+// nonActivating says whether w shows and takes the keyboard without
+// activating magpie, as the quick panel does (#2141); on the main thread.
+func nonActivating(w *application.WebviewWindow) bool {
+	p := w.NativeWindow()
+	return p != nil && C.nonActivating(p) != 0
+}
+
+// appFrontmost says whether magpie is the frontmost app, the one whose
+// menu bar shows; on the main thread.
+func appFrontmost() bool { return C.appFrontmost() != 0 }
 
 // windowOpen says whether w is open: shown, on any Space, and not
 // minimised; on the main thread.

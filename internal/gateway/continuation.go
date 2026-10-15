@@ -64,20 +64,7 @@ var errStreamCut = errors.New("stream cut mid-reply")
 // and be whole, so Chat is not one.
 var errEndedShort = errors.New("the reply ended before it was complete")
 
-// upstreamEnds says whether a stream's event ends the reply, by its type
-// as the passthrough's sniffer counts it (sniff.whole): an Anthropic
-// message_stop or error, a Responses response.completed,
-// response.incomplete or response.failed — a response.completed carrying
-// no status field among them, as relays send it. upstreamStop reads the
-// stop a stop_reason or a response status carries; this reads the type.
-func upstreamEnds(data string) bool {
-	var v struct {
-		Type string `json:"type"`
-	}
-	return json.Unmarshal([]byte(data), &v) == nil && lastEvent(v.Type)
-}
-
-// geminiEnds says whether a Gemini chunk ends the reply, as upstreamEnds
+// geminiEnds says whether a Gemini chunk ends the reply, as replyEnds
 // does for events that name their type. Gemini's and Code Assist's chunks
 // name none and there is no [DONE]: the last one is the one whose
 // candidate carries a finishReason (Code Assist's wrap theirs in a
@@ -317,7 +304,10 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 	var failedStatus int
 	var cut, errSent bool
 	var empty bool // a reply in this protocol that says nothing fails (#667)
-	empties := 0   // the times such a reply was asked again here
+	// counts: a reply in this protocol counts its tokens, and one that
+	// said nothing and counted none fails too (repliesCounted, #2086)
+	var counts bool
+	empties := 0 // the times such a reply was asked again here
 	said, stop := false, ""
 	var kept []Event       // the reply's end, while nothing is said in it
 	var before, this Usage // what the tries before this one billed, and this try
@@ -379,7 +369,7 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 		case KStop:
 			stop = ev.Stop
 		}
-		if empty && !said {
+		if (empty || counts) && !said {
 			switch {
 			case saysSomething(ev):
 				said = true
@@ -419,7 +409,7 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 		if err == nil {
 			u.RequestID = requestID(res.Header)
 			summaryUpstream = actual == provider.Responses || actual == provider.Gemini || actual == provider.CodeAssist
-			empty = emptyFails(actual)
+			empty, counts = emptyFails(actual), repliesCounted(actual)
 		}
 		if err == nil && res.StatusCode >= 400 {
 			b, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
@@ -451,7 +441,7 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 				if turnedAway {
 					u.ErrType = turnedAwayErrType
 				}
-				return writeError(w, from, res.StatusCode, failed), failed
+				return writeVendorError(w, from, res.StatusCode, failed, b), failed
 			}
 		}
 		if err == nil && res.StatusCode < 400 {
@@ -476,9 +466,7 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 				serr = readSSEAlive(rd, func(_, data string) error {
 					st := upstreamStop([]byte(data))
 					u.add(Usage{Upstream: upstreamOf([]byte(data)), Stop: st, Tier: upstreamTier([]byte(data))})
-					ended = ended || st != "" ||
-						(actual == provider.Anthropic || actual == provider.Responses) && upstreamEnds(data) ||
-						geminiKin(actual) && geminiEnds([]byte(data))
+					ended = ended || replyEnds(actual, data, st)
 					if err := dec(data, attemptSee); err != nil {
 						return err
 					}
@@ -526,7 +514,7 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 			if held != nil {
 				held()
 			}
-			if empty && !said && answersNothing(stop) {
+			if (empty || counts && uncounted(this)) && !said && answersNothing(stop) {
 				if empties < emptyRetries(w, r.Context()) && r.Context().Err() == nil {
 					// asked again here first, for the agent to have the
 					// answer rather than the error: Gemini on a long

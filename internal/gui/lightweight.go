@@ -57,6 +57,7 @@ func (h *host) makeMain(url string) *application.WebviewWindow {
 		BackgroundColour: winBg,
 	})
 	bindNativeBrandWindow(w)
+	h.zoomWhenLoaded(w)
 	// A resize is kept once it settles (settle): the size, or that the
 	// window is maximised. Nothing is kept of a window not placed and shown
 	// yet (placeMain: a text size can resize it, unmaximised as yet), one
@@ -115,6 +116,7 @@ func (h *host) makePanel() *application.WebviewWindow {
 	po.Width, po.Height, po.Zoom = h.panelW(), cmp.Or(h.panelHeight, zoomed(panelStart, z)), z
 	w := h.app.Window.NewWithOptions(po)
 	bindNativeBrandWindow(w)
+	h.zoomWhenLoaded(w)
 	if h.tray != nil {
 		h.tray.AttachWindow(w).WindowOffset(6)
 	}
@@ -138,6 +140,18 @@ func (h *host) makePanel() *application.WebviewWindow {
 		}
 	})
 	return w
+}
+
+// zoomWhenLoaded puts the text size on w's page each time the page has
+// come, where the window's Zoom option doesn't reach it (zoomsAfterLoad:
+// Windows on ARM, #2212). A size picked before then is put on it here too.
+func (h *host) zoomWhenLoaded(w *application.WebviewWindow) {
+	if !zoomsAfterLoad {
+		return
+	}
+	w.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) {
+		application.InvokeAsync(func() { setPageZoom(w, h.zoom()) })
+	})
 }
 
 // madeAgain gives a window made again after lightweight mode let it go

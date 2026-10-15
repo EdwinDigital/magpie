@@ -1,5 +1,71 @@
 // Audited application-owned translation keys. Third-party metadata is never rewritten.
 window.enterpriseBrandKeys = new Set([
+  // Application-owned prose introduced by main; paths and third-party names stay literal.
+  "The magpie provider is missing; reconnect the provider without changing this selection",
+  "{agent} reaches magpie through a proxy that doesn't pass its requests on",
+  "magpie's provider table stays, so sessions opened on magpie's models still open",
+  "A proxy in front of magpie stopped waiting; magpie may still be finishing, check again in a minute ({what})",
+  "A proxy in front of magpie answered, not magpie ({what})",
+  "None of magpie's models is left in {agent}'s model list: pick one under Model list → Pick, then connect {agent}",
+  "None of magpie's models is left in {agent}'s model list: pick one, then connect {agent}",
+  "「接入」 goes off, and {agent} is listed under Not set up with the agents not connected. Switch it on again to go back through magpie.",
+  "「接入」 goes off. Switch it on again to go back through magpie.",
+  "magpie is Codex's provider; the Codex app is in its API state, with magpie's models only. Codex's Chrome control needs the ChatGPT sign-in, so pick ChatGPT to keep it",
+  "You removed it from magpie.",
+  "Keeps this computer awake while magpie runs tasks",
+  "Keeps this computer and its screen awake while magpie runs tasks",
+  "Parts of magpie not everyone needs. Switched off, a part leaves the sidebar, its pages and Settings; magpie works the same either way.",
+  "Adds a page of its own to the sidebar. It runs shut off from the rest of magpie and can read only what its row lists",
+  "Adds a page to the sidebar, which reads nothing of magpie's",
+  "The model Magpie Image draws with, for the agents given the Magpie Image tool; images are saved in their project",
+  "The model Magpie Image draws with. Agents get the Magpie Image tool from the Library, which is turned off in Plugins › Built-in; images are saved in their project",
+  "The model Magpie Image draws with. Agents get the Magpie Image tool from the Library; images are saved in their project",
+  "Give agents Magpie Image…",
+  "Agents given Magpie Image can't generate images or videos: the tool says it is off",
+  "Reads all local sessions from Codex, Pi, Oh My Pi, Claude Code, Cowork, OpenCode and Gemini CLI, including calls not routed through Magpie. When content is included below, exports prompts, replies, tool arguments and tool output (including file contents and command output), with secrets masked",
+  "Agents magpie connected move with it. Now {url}",
+  "Another magpie serves the gateway at {url}: set its port there, or quit it first",
+  "Agents on other computers on this network, or through a tunnel to this one such as Cloudflare Tunnel, can use magpie’s models with a gateway key from Gateway",
+  "Show your subscriptions' allowances, or the tokens and cost of today or the last 7 days, beside magpie's icon in the menu bar, side by side, refreshed every few minutes",
+  "Show your subscriptions' allowances, or the tokens and cost of today or the last 7 days, when pointing at magpie's tray icon, refreshed every few minutes",
+  "What magpie's requests cost, beside their tokens in the menu bar and its tooltip; off, the tokens alone",
+  "Read the accounts your agents are signed in to (Claude Code, Codex, Copilot, Cursor and others: their files and the Keychain) and serve them. Off, magpie reads none of them; API-key providers work as before",
+  "A GPT lead spawns subagents on magpie’s other models. New threads only; Codex’s own multi_agent_v2 still wins",
+  "The same models as {agent}'s own, through magpie: click to show them",
+  "magpie couldn't open your browser: {error}. Open the sign-in link below in a browser yourself.",
+  "If the page can't reach magpie (it runs on a server or in Docker), make an API key on {name}'s keys page and paste it here.",
+  "In Air, start a new task and pick Magpie in its agent menu: magpie's models and routing groups are in its model menu.",
+  "Air runs magpie's models through OpenCode's ACP server, and OpenCode isn't installed here: install OpenCode (npm i -g opencode-ai), then pick Magpie in a new Air task.",
+  "magpie's models are in VS Code's Chat model picker, under magpie (VS Code 1.122 or later). If they don't show, run Developer: Reload Window in VS Code.",
+  "That list leaves out {addr}, the address magpie sees this page open from: add it first, or this page can’t reach magpie",
+  "Your resource's endpoint, from Keys and Endpoint in the Azure portal. Once added, magpie asks the resource for its deployments with this key, over its v1 API; the deployments' names are the model ids.",
+  "No need to type them: once added, magpie lists the deployments this key can call. Type a deployment's name as a model id only if that list can't be fetched.",
+  "None ticked: magpie sends {id} no reasoning field, whatever effort the agent asks, as for a model that doesn't reason",
+  "The model other providers serve that {id} is the same as: the routing groups magpie finds put them together, and when no list prices {id}, its calls are costed at that model's list price. Empty: by its own id",
+  "Put these in the shell (or the tool's settings) and the tool talks to magpie instead of the vendor.",
+  "The whole window can't be estimated from magpie's calls yet",
+  "It began before magpie's request log, so some of its calls weren't seen",
+  "magpie hasn't routed a call through this account in it yet",
+  "magpie doesn't serve it now",
+  "it is disabled in magpie",
+  "{n} request in this period was magpie's own",
+  "{n} requests in this period were magpie's own",
+  "For your own server with a self-signed certificate or one from your company's CA. magpie then can't tell it from another machine answering at its address: turn it on only on a network you trust.",
+  "Codex's compaction is asked of this provider as Codex sent it, and the summary it seals goes back to Codex unchanged. Off, magpie writes the summary. A conversation compacted this way continues only on this provider and account: another is refused with an error, never sent without the context.",
+  "magpie's models are in Copilot Chat's model picker in your JetBrains IDE, under magpie, once the IDE restarts. They need Copilot signed in to GitHub on a plan with Bring Your Own Key: Copilot Free, Pro and Pro+ have it, Business and Enterprise when the organisation's policy allows it.",
+  "magpie's models are in {agent}'s Chat model picker under magpie, from GitHub Copilot Chat {version}'s OpenAI Compatible provider, which it offers only while it is signed in to GitHub with a personal Copilot plan.",
+  "magpie's models are in {agent}'s Chat model picker, under magpie, in each of its profiles (VS Code 1.122 or later). If they don't show, run Developer: Reload Window in {agent}.",
+  "{agent}'s daemon runs on magpie's gateway: open {agent} again (reload its window if it is open). It still needs you signed in with your Claude account, which magpie never sends on; pick a model of magpie's in its model menu.",
+  "{file} sets {var}, so Claude Code sends its requests to {cloud}, not to magpie: take it out there to go through magpie.",
+  "{var} is set in your shell's environment, so Claude Code started there sends its requests to {cloud}, not to magpie: take it out of your shell's profile to go through magpie.",
+  "The subagent effort set in magpie is {effort}; the model's supported levels and a routing group's fixed member effort still apply.",
+  "{agent}'s call to magpie's web_search MCP tool",
+  "{failed}, the searcher picked in Settings › Models › Web search, didn't search for {whom}: {why}. So magpie had {searcher}, the next searcher it can use, search in its place. Not a turn of the conversation.",
+  "{failed}, the searcher magpie picked, didn't search for {whom}: {why}. So magpie had {searcher}, the next searcher it can use, search in its place. Not a turn of the conversation.",
+  "{agent} called magpie's analyze_image MCP tool: {describer} looked at the image for it. Not a turn of the conversation.",
+  "{agent}'s own files of its sessions can't be read here, so only what magpie recorded through the gateway is searched.",
+  "Seen only through the gateway: the agent kept no session file magpie can read. Turn on Record gateway conversations in Sessions to keep its prompts.",
+
   // Application-owned guidance added by the main sync; identifiers stay literal.
   "magpie set openai_base_url in {agent}'s config.toml, so a request the ChatGPT account {agent} is signed in to has no allowance for goes on to your other ChatGPT accounts on in magpie. {agent} keeps to its own models. To stop it, tick Only switch {agent}'s sign-in under Providers › Codex, or switch those accounts off; connecting {agent} adds magpie's models.",
   "magpie found these on this computer. Click one to connect it:",
@@ -393,9 +459,9 @@ window.enterpriseBrandKeys = new Set([
   "~/.dsh/settings.yaml sets its own DeepSeek endpoint or key, which dsh puts over magpie's; clear it in dsh's Models page to go through magpie.",
 ]);
 window.enterpriseBrandText = (text) => text
-  .replace(/\bas the magpie provider\b/gi, "as the {app} provider")
+  .replace(/\b(as the|The) magpie provider\b/gi, "$1 {app} provider")
   .replace(/\bmagpie set openai_base_url\b/gi, "{app} set openai_base_url")
   .replace(/\bmagpie\s+(?=quota\b|accounts\b)/gi, "{cli} ")
   // German compounds are prose, unlike package names and protocol identifiers.
-  .replace(/\bmagpie-(?=Anbieter\b|Backup\b|Endpunkt\b|Fenstern\b|Log\b|Modelle\b|Modellen\b|Schl\u00fcssel\b|Symbol\b|Teil\b|Teils\b|Tray\b|Version\b)/gi, "{app}-")
+  .replace(/\bmagpie-(?=Anbieter\b|Image\b|Backup\b|Endpunkt\b|Fenstern\b|Log\b|Modelle\b|Modellen\b|Schl\u00fcssel\b|Symbol\b|Teil\b|Teils\b|Tray\b|Version\b)/gi, "{app}-")
   .replace(/(^|[^{\w])\bmagpie\b(?![-\/:]|\.[\w]|\s+(?:quota|accounts|account|providers|provider|update|version|library|mcp|group|web|tui|gui|tray|panel|set|codex|claude|help|doctor|plugins|plugin|backup|s3|webdav|rtk|install|app|config|serve|proxy|skills|skill)\b)/gi, "$1{app}");

@@ -100,7 +100,7 @@ func (h *host) restartConfiguredApplication() error {
 	configurationRestart.Store(true)
 	var err error
 	if b := update.Bundle(); b != "" {
-		err = update.Relaunch(b)
+		err = update.Relaunch(b, h.MainShown())
 	} else {
 		var exe string
 		exe, err = update.Executable()

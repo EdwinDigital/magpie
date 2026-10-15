@@ -54,6 +54,7 @@ function fixture(lang, { native = false, theme = "light" } = {}) {
     if (url.pathname === "/api/enterprise/providers") return json(candidates);
     if (url.pathname === "/api/providers") return json({ providers: [], presets, excluded: [], plugins: [], gateway: { running: true, url: "http://127.0.0.1:3999", groups: [], calls: [] } });
     if (url.pathname === "/api/plugins") return json({ plugins: [], bun: true, picker: false });
+    if (url.pathname === "/api/plugins/builtin") return json([]);
     if (url.pathname === "/api/application/restart") return route.fulfill({ status: 409, json: { error: "wait for running gateway requests before restarting" } });
     if (url.pathname === "/api/plugins/add") { posts.push(request.postDataJSON()); return json({ plugins: [], bun: true }); }
     if (url.pathname === "/api/plugins/listings") return json({ listings: [] });
@@ -71,6 +72,32 @@ function fixture(lang, { native = false, theme = "light" } = {}) {
 }
 
 for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]]) {
+  test(`${engineName}: built-in plugins respect both enterprise policy and feature switches`, async () => {
+    const browser = await engine.launch();
+    try {
+      const page = await browser.newPage({ viewport: { width: 1100, height: 900 } }), f = fixture("en");
+      page.on("pageerror", e => f.errors.push(e.message));
+      await page.route("**/*", f.serve);
+      await page.goto("http://enterprise.invalid/?view=plugins");
+      await page.locator(".pm-manual .pm-minput").waitFor();
+      await page.getByRole("tab", { name: "Built-in", exact: true }).click();
+      await page.locator("#builtinList").waitFor({ state: "attached" });
+      assert.equal(await page.locator("#view-plugins .pm-find").isVisible(), false);
+      await page.evaluate(() => applyFeatures([{ id: "library", on: true }]));
+      const library = page.locator('#nav button[data-view="library"]');
+      assert.equal(await library.isVisible(), false, "a built-in reconciliation cannot reopen the enterprise library");
+      assert.equal(f.asked.some(p => ["/api/plugins/listings", "/api/plugins/github", "/api/plugins/search"].includes(p)), false);
+      const next = { ...f.get(), effective: { ...f.get().effective, libraryEnabled: true }, revision: "library-enabled" };
+      f.set(next);
+      await page.evaluate(next => window.receiveEnterprise(next), next);
+      assert.equal(await library.isVisible(), true);
+      await page.evaluate(() => applyFeatures([{ id: "library", on: false }]));
+      await page.evaluate(next => window.receiveEnterprise(next), next);
+      assert.equal(await library.isVisible(), false, "enterprise polling cannot reopen a disabled built-in page");
+      assert.deepEqual(f.errors, []);
+    } finally { await browser.close(); }
+  });
+
   test(`${engineName}: enterprise defaults, save, provider projection, top install, no discovery, drafts and narrow layout`, async () => {
     const browser = await engine.launch();
     try {

@@ -73,6 +73,21 @@ type List struct {
 
 var listMu sync.Mutex
 
+// bunMu is held through each bun command that changes plugins/ (add,
+// update, remove). Two at once read package.json and bun.lock before
+// either writes them, so one's change is lost (#2002, anganing: after an
+// update, the hourly plugin updates and the moved subscriptions' ran
+// together at start). The dependency a git plugin is found by is then
+// gone from package.json, and the plugin can't be loaded.
+var installMu sync.Mutex
+
+// runBun runs a bun command that changes plugins/, one at a time.
+func runBun(ctx context.Context, bun string, args ...string) ([]byte, error) {
+	installMu.Lock()
+	defer installMu.Unlock()
+	return bunCommand(ctx, bun, Dir(), args...).CombinedOutput()
+}
+
 // Dir is the folder magpie installs npm plugins into.
 func Dir() string { return filepath.Join(settings.Dir(), "plugins") }
 
@@ -107,6 +122,9 @@ func lockAuth() func() {
 }
 
 func listPath() string { return filepath.Join(settings.Dir(), "plugins.json") }
+
+// ListPath is plugins.json's path.
+func ListPath() string { return listPath() }
 
 // pluginsList is plugins.json as last read, with the bytes it was parsed
 // from. The file is read every time: an edit that keeps the file's size and
@@ -268,10 +286,15 @@ func checkList() {
 }
 
 // IsPath is whether spec names a file or folder rather than a package,
-// as OpenCode tells them apart.
+// as OpenCode tells them apart. A path rooted the way any system roots
+// one counts on every system, since plugins.json travels between
+// machines in a backup or a sync: a leading / or \ (a UNC path among
+// them) on Windows as well, and a drive letter off it (#2229).
 func IsPath(spec string) bool {
-	return strings.HasPrefix(spec, "file://") || strings.HasPrefix(spec, ".") || filepath.IsAbs(spec) || regexp.MustCompile(`^[A-Za-z]:[\\/]`).MatchString(spec)
+	return strings.HasPrefix(spec, "file://") || strings.HasPrefix(spec, ".") || strings.HasPrefix(spec, "/") || strings.HasPrefix(spec, `\`) || filepath.IsAbs(spec) || driveRooted.MatchString(spec)
 }
+
+var driveRooted = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 var pkgName = regexp.MustCompile(`^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$`)
 
@@ -391,7 +414,7 @@ func addEntry(ctx context.Context, spec, version, archive string) (Entry, error)
 		// installed just now for this, and nothing loads it: taken out again
 		if !IsPath(spec) && !slices.Contains(slices.Collect(maps.Values(was)), Name(spec)) {
 			if bun, berr := Bun(ctx); berr == nil {
-				_ = bunCommand(ctx, bun, Dir(), "remove", "--ignore-scripts", Name(spec)).Run()
+				_, _ = runBun(ctx, bun, "remove", "--ignore-scripts", Name(spec))
 			}
 		}
 		return Entry{}, err
@@ -460,6 +483,9 @@ func notPlugin(target string) error {
 		return nil
 	}
 	if f, _ := Agent(target); f != "" {
+		return nil
+	}
+	if p, _ := WindowPage(target); p != nil {
 		return nil
 	}
 	var pkg struct {
@@ -563,7 +589,7 @@ func Remove(ctx context.Context, name string) error {
 	}
 	if !IsPath(e.Spec) {
 		if bun, err := Bun(ctx); err == nil {
-			_ = bunCommand(ctx, bun, Dir(), "remove", "--ignore-scripts", Name(e.Spec)).Run()
+			_, _ = runBun(ctx, bun, "remove", "--ignore-scripts", Name(e.Spec))
 		}
 	}
 	Restart()
@@ -663,12 +689,38 @@ func install(ctx context.Context, spec string) error {
 	if err := os.MkdirAll(Dir(), 0o755); err != nil {
 		return err
 	}
+	// the package.json made for a first plugin is made under the lock
+	// too: written while another bun add writes its own, it would take
+	// every plugin out of it
+	installMu.Lock()
 	pj := filepath.Join(Dir(), "package.json")
 	if _, err := os.Stat(pj); err != nil {
 		if err := os.WriteFile(pj, []byte("{\n  \"name\": \"magpie-plugins\",\n  \"private\": true\n}\n"), 0o644); err != nil {
+			installMu.Unlock()
 			return err
 		}
 	}
+	defer installMu.Unlock()
+	err = bunAdd(ctx, bun, spec)
+	// a @magpie-community package or version npm doesn't have (a new
+	// one waits for an owner to publish it there) comes from the
+	// community repo's dist branch; one Bun's minimumReleaseAge holds
+	// back stays held, as the user's bunfig asks
+	if name, version, ok := distWanted(spec); ok && err != nil && !minAge.MatchString(err.Error()) {
+		if derr := installDist(ctx, bun, name, version); derr != nil {
+			return fmt.Errorf("%w (and from the community repo's dist branch: %v)", err, derr)
+		}
+		err = nil
+	}
+	if err == nil {
+		pruneDist()
+	}
+	return err
+}
+
+// bunAdd adds spec to plugins/ with bun, its scripts left unrun.
+// installMu held.
+func bunAdd(ctx context.Context, bun, spec string) error {
 	out, err := bunCommand(ctx, bun, Dir(), "add", "--ignore-scripts", spec).CombinedOutput()
 	if err != nil {
 		if hint := missingLibs(string(out)); hint != "" {
@@ -838,7 +890,7 @@ func reinstall(ctx context.Context, spec string) error {
 	if err != nil {
 		return err
 	}
-	out, err := bunCommand(ctx, bun, Dir(), "update", "--ignore-scripts", name).CombinedOutput()
+	out, err := runBun(ctx, bun, "update", "--ignore-scripts", name)
 	if err != nil {
 		if hint := missingLibs(string(out)); hint != "" {
 			return fmt.Errorf("bun update %s: %s: %w", name, hint, err)

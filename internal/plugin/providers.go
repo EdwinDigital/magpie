@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,17 @@ func (m Method) KeyTitle(name string) string {
 	return l
 }
 
+// Cost is a model's price as a plugin gives it: OpenCode's cost, in USD
+// per 1M tokens, 0 where it gives none.
+type Cost struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
+	Cache  struct {
+		Read  float64 `json:"read"`
+		Write float64 `json:"write"`
+	} `json:"cache"`
+}
+
 // Model is a model a plugin's provider serves, as OpenCode lists it.
 type Model struct {
 	ID        string   `json:"id"`
@@ -64,10 +76,9 @@ type Model struct {
 	// m.rateWas); 0 is none.
 	Rate    float64 `json:"rate"`
 	RateWas float64 `json:"rateWas"`
-	Cost    *struct {
-		Input  float64 `json:"input"`
-		Output float64 `json:"output"`
-	} `json:"cost"`
+	// Cost is the model's price as the plugin gives it (Devin's own list,
+	// 0.1.18)
+	Cost *Cost `json:"cost"`
 	// ImageSaid is whether the plugin (or models.dev) said if it takes
 	// images: Image false without it is not known
 	ImageSaid bool `json:"imageSaid"`
@@ -103,11 +114,19 @@ type Provider struct {
 	// Checkin says the plugin presses its vendor's daily check-in for each
 	// account (auth.checkin)
 	Checkin bool `json:"checkin,omitempty"`
+	// Options are the switches the plugin declares for the provider
+	// (auth.options, #2038), as the host checked them
+	Options []Option `json:"options,omitempty"`
 	// Decide says the plugin serves a decision API (TypeSafe's System
 	// One) for this provider: its config hook set decide on it. magpie
 	// posts the questions to the provider's own base, at /systemone,
 	// through the plugin's fetch (#1514).
-	Decide    bool    `json:"decide,omitempty"`
+	Decide bool `json:"decide,omitempty"`
+	// Searches says the provider's upstream answers a web search tool
+	// offered on its Anthropic or Responses API by itself, as a custom
+	// provider's Searches does (#825): its config hook set searches on it
+	// (#2027), for a plugin in front of Claude's or Codex's API.
+	Searches  bool    `json:"searches,omitempty"`
 	SignedIn  bool    `json:"signedIn"`
 	AuthType  string  `json:"authType"`
 	AccountID string  `json:"accountId"`
@@ -127,6 +146,38 @@ type Provider struct {
 	// magpie.maxConcurrency); 0 for none said. The user's setting on the
 	// provider goes over it.
 	MaxConcurrency int `json:"maxConcurrency,omitempty"`
+}
+
+// Option is a switch a plugin declares for its provider (auth.options,
+// #2038): magpie shows it, keeps the user's value in settings'
+// PluginOptions and hands it to the plugin (input.magpie.option). Nothing
+// runs when it changes.
+type Option struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+	// Confirm is asked before the switch is turned on, when the plugin
+	// says turning it on does something the user should agree to
+	Confirm string `json:"confirm,omitempty"`
+}
+
+// OptionOn is option o of a provider as it stands with the user's values
+// in chosen (settings' PluginOptions): theirs, else the plugin's default.
+func OptionOn(chosen map[string]map[string]bool, provider string, o Option) bool {
+	if v, ok := chosen[provider][o.Key]; ok {
+		return v
+	}
+	return o.Default
+}
+
+// SetProviderOptions hands the user's option values (settings' PluginOptions) to
+// the host running now; a host started later reads them at its start.
+func SetProviderOptions(ctx context.Context) error {
+	if !Running() {
+		return nil
+	}
+	return Call(ctx, "setProviderOptions", map[string]any{"options": settings.Load().PluginOptions}, nil)
 }
 
 // Account is one account a provider is signed in to: Key is where
@@ -208,12 +259,34 @@ func commitProviders(ps []Provider, epoch *uint64) []Provider {
 	}
 	ps = keepListed(ps, provCache)
 	ps = keepUnloaded(ps, provCache)
+	was := provCache
 	provCache, provGood, provTried = ps, true, true
 	provMu.Unlock()
-	if b, err := json.Marshal(ps); err == nil {
+	b, err := json.Marshal(ps)
+	if err == nil {
+		if was == nil {
+			// what an earlier run kept: a start that lists the same is no
+			// change
+			if kept, err := steady.ReadFile(providersPath()); err == nil {
+				_ = json.Unmarshal(kept, &was)
+			}
+		}
 		_ = writeWhole(providersPath(), b)
 	}
+	if err != nil || !sameList(was, b) {
+		listed()
+	}
 	return ps
+}
+
+// sameList reports whether the providers was and the list b marshals to
+// say the same.
+func sameList(was []Provider, b []byte) bool {
+	if was == nil {
+		return false
+	}
+	w, err := json.Marshal(was)
+	return err == nil && bytes.Equal(w, b)
 }
 
 // refreshDeadline bounds one providers RPC after host initialization: a plugin host
@@ -411,6 +484,24 @@ func UseCached(ps []Provider) {
 	listSeen.Unlock()
 }
 
+// Listed is every provider the plugins last listed, an off plugin's among
+// them, as Cached keeps them, with no sign-in read: false when no listing
+// is known (none kept, plugin-providers.json missing or unreadable), which
+// is never "no providers".
+func Listed() ([]Provider, bool) {
+	provMu.Lock()
+	ps := provCache
+	provMu.Unlock()
+	if ps != nil {
+		return slices.Clone(ps), true
+	}
+	b, err := steady.ReadFile(providersPath())
+	if err != nil || json.Unmarshal(b, &ps) != nil {
+		return nil, false
+	}
+	return ps, true
+}
+
 // refreshing is Cached's refreshes in the background.
 var refreshing sync.WaitGroup
 
@@ -418,8 +509,9 @@ var refreshing sync.WaitGroup
 // host left running: for tests that watch the providers' list on disk.
 func Refreshed() { refreshing.Wait() }
 
-// Told waits for the hooks told of a change (OnChange) to end: for tests,
-// so that a change one test made is not told in the next.
+// Told waits for the hooks told of a change or a sign-in (OnChange,
+// OnSignIn) to end: for tests, so that a change one test made is not told
+// in the next, nor written into its folder as it goes.
 func Told() {
 	telling.Lock()
 	for telling.n > 0 {
@@ -468,6 +560,12 @@ func KnownNames(spec string) []string {
 func Settle() {
 	refreshing.Wait()
 	Restart()
+	// what the host said of a sign-in is written before the folder goes
+	// (#1935); a hook that read the providers to know the account's
+	// started a host again, which goes too
+	Told()
+	refreshing.Wait()
+	Restart()
 	// and no host goes on finishing its calls in a folder going away
 	hostMu.Lock()
 	hs := make([]*host, 0, len(retiring))
@@ -484,6 +582,7 @@ func Settle() {
 	// its own, are not taken for the plugins changed (checkList), nor
 	// answered with these
 	UseCached(nil)
+	cancelCatalogSyncs()
 }
 
 // Cached is the plugins' providers as last asked, without starting the
@@ -640,7 +739,7 @@ func SignedIn(provider string) bool {
 
 // Prompt is a question a sign-in method asks before it starts.
 type Prompt struct {
-	Type        string `json:"type"` // text, select
+	Type        string `json:"type"` // text, select, password (text typed unseen, #1982)
 	Key         string `json:"key"`
 	Message     string `json:"message"`
 	Placeholder string `json:"placeholder,omitempty"`

@@ -192,6 +192,24 @@ func TestWiringTokenOwnershipHasAnUnambiguousNamespace(t *testing.T) {
 	}
 }
 
+func TestSyncSnapshotDoesNotClaimAnotherClientsToken(t *testing.T) {
+	enterpriseWiringSandbox(t)
+	k := kept{lan: "synthetic-lan"}
+	if !k.ours(gateway.TokenFor("workbuddy")) || !k.ours(k.lan) {
+		t.Fatal("sync snapshot lost its own agent or LAN token")
+	}
+	if k.ours("magpie-enterprise-msai-client-other~-workbuddy") || k.ours("magpie-workbuddy") {
+		t.Fatal("enterprise sync claimed another client's token")
+	}
+	gateway.Token = "magpie"
+	if k.ours("magpie-enterprise-msai-client~-workbuddy") {
+		t.Fatal("public sync claimed an enterprise token as a public agent suffix")
+	}
+	if !k.ours("Bearer magpie-workbuddy") {
+		t.Fatal("public sync lost its own agent token")
+	}
+}
+
 func TestEnterpriseLegacyWorkBuddyConversionRequiresPrivateRecord(t *testing.T) {
 	home := enterpriseWiringSandbox(t)
 	if err := provider.Save(provider.Provider{ID: "fake", Name: "Fake", Chat: "http://fake.invalid/v1", Key: "synthetic", Models: []string{"pro"}}); err != nil {

@@ -91,7 +91,7 @@
   systemDark.addEventListener("change", themeIcons);
   function navigation() {
     const b = document.querySelector('#nav [data-view="library"]');
-    if (b) b.hidden = !flag("libraryEnabled") || typeof gatewayMode !== "undefined" && gatewayMode;
+    if (b) b.hidden = !flag("libraryEnabled") || typeof gatewayMode !== "undefined" && gatewayMode || typeof featureHides === "function" && featureHides(b);
     if (!flag("libraryEnabled") && typeof view !== "undefined" && view === "library") {
       show("providers");
     }

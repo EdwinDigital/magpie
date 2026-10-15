@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yetone/magpie/internal/catalog"
+	"github.com/yetone/magpie/internal/gwtool"
 	"github.com/yetone/magpie/internal/netproxy"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
@@ -34,7 +35,11 @@ import (
 // what a search found.
 const searchRounds = 6
 
-const searchTimeout = 2 * time.Minute
+// searchTimeout is how long a search's vendor has to answer; a model's
+// search (modelSearch) has it from when its request went out, each try's
+// own, and searchWaitMost in all, its waits for a slot or a resting
+// provider with it (sideDeadline, #2318).
+const searchTimeout, searchWaitMost = 2 * time.Minute, 5 * time.Minute
 
 // searchingKey marks a search magpie asks for itself, which must not
 // search by way of another model again.
@@ -93,14 +98,18 @@ func searchFor(ctx context.Context) *CallFor {
 // searchesItself says whether the provider searches the web by itself when
 // asked on this API.
 func searchesItself(p provider.Provider, proto provider.Protocol) bool {
+	// a relay said to search (#359), and a plugin whose config hook says
+	// its upstream does (#2027), on an API it has an address for: one with
+	// only a Chat address would be sent no search tool at all. Another
+	// sign-in's Searches is never read.
+	saidTo := p.Searches && (proto == provider.Anthropic || proto == provider.Responses) && p.Base(proto) != ""
 	if p.Account != nil {
 		// Grok by its id: moved to its plugin, its account is the plugin's;
 		// its plugin beside the built-in (grok-plugin) by the plugin's id
-		return (p.Account.Agent == "codex" || p.ID == "grok" || p.PluginProvider() == "grok") && proto == provider.Responses
+		return (p.Account.Agent == "codex" || p.ID == "grok" || p.PluginProvider() == "grok") && proto == provider.Responses ||
+			p.IsPlugin() && saidTo
 	}
-	// a relay said to search (#359), on an API it has an address for: one
-	// with only a Chat address would be sent no search tool at all
-	if p.Searches && (proto == provider.Anthropic || proto == provider.Responses) && p.Base(proto) != "" {
+	if saidTo {
 		return true
 	}
 	return slices.Contains(searchHosts[proto], provider.HostOf(p.Base(proto)))
@@ -520,6 +529,9 @@ func (s *Server) webSearch(ctx context.Context, query string) (string, []Hit, er
 	// is set to (#1522: Codex asked while a "direct" provider served the
 	// turn dialed chatgpt.com directly)
 	ctx = netproxy.With(ctx, "")
+	if !searchServed() {
+		return "", nil, errSearchOff
+	}
 	if settings.Load().Searcher == "off" {
 		if len(provider.SearchAPIs()) == 0 {
 			return "", nil, errNoSearcher
@@ -563,13 +575,22 @@ func (s *Server) webSearch(ctx context.Context, query string) (string, []Hit, er
 
 var errNoSearcher = errors.New("no provider that can search the web, nor a search API, is set up in magpie")
 
+// errSearchOff is a search asked of magpie while plugins/search is off.
+var errSearchOff = errors.New("magpie's web search is off: turn the Web search plugin on in magpie's Settings → Plugins")
+
+// searchServed is whether plugins/search serves magpie's web search here
+// (the gateway's tool point, gwtool): off, magpie neither offers its
+// web_search nor answers one, and a vendor that searches by itself still
+// does.
+func searchServed() bool { return gwtool.Served(gwtool.WebSearch) }
+
 // searchersInTurn is how many searchers a search is asked of, in turn,
 // before it goes to the search APIs.
 const searchersInTurn = 3
 
 // modelSearch searches the web with the searcher's model; one magpie
 // picked that fails or finds nothing gives way to the next searcher magpie
-// would pick, all of them within searchTimeout. One Settings names gives
+// would pick, all of them within searchWaitMost. One Settings names gives
 // way to none: the search APIs, when set up, search in its place
 // (webSearch), and Settings says it didn't search (SearcherFailed). Handed
 // on, a search for Grok, picked, went to Codex's gpt-6-astra, a pricier
@@ -579,7 +600,7 @@ func (s *Server) modelSearch(ctx context.Context, query string) (string, []Hit, 
 	if !ok {
 		return "", nil, errNoSearcher
 	}
-	ctx, cancel := context.WithTimeout(context.WithValue(ctx, searchingKey{}, true), searchTimeout)
+	ctx, cancel := sideDeadline(context.WithValue(ctx, searchingKey{}, true), "search", searchTimeout, searchWaitMost)
 	defer cancel()
 	type pick struct{ id, model string }
 	tried := []pick{{p.ID, model}}
@@ -594,7 +615,7 @@ func (s *Server) modelSearch(ctx context.Context, query string) (string, []Hit, 
 		err = nil
 	}
 	if err == nil {
-		said, hits, err = s.searchBy(ctx, p, model, query)
+		said, hits, err = s.searchBy(ctx, p, model, query, searchEffort(p, model))
 	}
 	if named {
 		// a search the agent stopped waiting for is no failure of its
@@ -631,7 +652,7 @@ func (s *Server) modelSearch(ctx context.Context, query string) (string, []Hit, 
 		tried = append(tried, pick{c.Provider.ID, c.Small})
 		next := searcherSpent(c.Provider, c.Small)
 		if next == nil {
-			said, hits, next = s.searchWith(ctx, c.Provider, c.Small, query)
+			said, hits, next = s.searchWith(ctx, c.Provider, c.Small, query, searchEffort(c.Provider, c.Small))
 		}
 		if next != nil {
 			err = errors.Join(err, next)
@@ -710,7 +731,7 @@ func searcherSpent(p provider.Provider, model string) error {
 	}
 	when := ""
 	if !back.IsZero() {
-		when = " until " + back.Local().Format("Jan 2 15:04")
+		when = " until " + heldClock(back, time.Now())
 	}
 	return fmt.Errorf("%s/%s: out of its allowance%s, not asked", p.ID, model, when)
 }
@@ -756,12 +777,12 @@ var errNotSearched = fmt.Errorf("answered without searching the web: %w", errFou
 // what it says found nothing: the model answered without searching (#669:
 // DeepSeek on its Chat API, which has no search tool, said it couldn't, or
 // wrote its own tool-call markup as text).
-func (s *Server) searchWith(ctx context.Context, p provider.Provider, model, query string) (string, []Hit, error) {
-	body, _ := json.Marshal(map[string]any{
-		"model": p.ID + "/" + model, "max_tokens": 4096, "stream": false, "system": searchSystem,
-		"messages": []map[string]any{{"role": "user", "content": "Search the web for: " + query}},
-		"tools":    []map[string]any{{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}},
-	})
+//
+// effort is the level its model is asked to think at, "" for none sent:
+// the searcher's is picked in Settings (searchEffort), and a provider
+// searching for its own models is sent none.
+func (s *Server) searchWith(ctx context.Context, p provider.Provider, model, query, effort string) (string, []Hit, error) {
+	body, _ := json.Marshal(searchBody(p, model, query, effort))
 	r, err := http.NewRequestWithContext(magpieChose(ctx), http.MethodPost, "http://magpie/v1/messages", nil)
 	if err != nil {
 		return "", nil, err
@@ -785,8 +806,8 @@ func (s *Server) searchWith(ctx context.Context, p provider.Provider, model, que
 		if out.Error != nil && out.Error.Message != "" {
 			msg = out.Error.Message
 		}
-		if ctx.Err() != nil {
-			msg = "no answer in " + searchTimeout.String()
+		if t, ok := sideTimeout(ctx); ok {
+			msg = t.Error()
 		}
 		return "", nil, fmt.Errorf("%s/%s: %s", p.ID, model, msg)
 	}
@@ -833,6 +854,41 @@ func (s *Server) searchWith(ctx context.Context, p provider.Provider, model, que
 		said += "\n\nSources:\n" + strings.Join(sources, "\n")
 	}
 	return said, found, nil
+}
+
+// searchBody is the Anthropic Messages request the searcher's model is
+// asked to search with. A level of reasoning is asked as Claude Code asks
+// it, a thinking budget with output_config.effort beside it, which the
+// gateway fits to the vendor the model is on: adaptive thinking for a
+// Claude that takes only that (adaptiveThinking), reasoning_effort, a
+// Gemini thinking level. A Claude before adaptive thinking is sent the
+// budget alone, as output_config.effort isn't its; "none" turns thinking
+// off.
+func searchBody(p provider.Provider, model, query, effort string) map[string]any {
+	q := map[string]any{
+		"model": p.ID + "/" + model, "max_tokens": replyRoom(4096, effort), "stream": false, "system": searchSystem,
+		"messages": []map[string]any{{"role": "user", "content": "Search the web for: " + query}},
+		"tools":    []map[string]any{{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}},
+	}
+	switch effort {
+	case "":
+	case "none":
+		q["thinking"] = map[string]any{"type": "disabled"}
+	default:
+		budget := 1024 // Anthropic's least
+		if effort != "minimal" {
+			budget = budgetOf(effortOf(effort))
+		}
+		q["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+		vendor := model
+		if _, m, ok := provider.Resolve(p.ID + "/" + model); ok {
+			vendor = m
+		}
+		if _, _, claude := claudeVersionOf(vendor); !claude || adaptiveOnly(vendor) {
+			q["output_config"] = map[string]any{"effort": effort}
+		}
+	}
+	return q
 }
 
 // SearchAgent is the User-Agent of the searches magpie makes for a model.
@@ -882,6 +938,13 @@ func (s *Server) searchRounds(ctx context.Context, q *Request, tool string, in <
 		mine, theirs, gap := false, false, said
 		var stop string
 		for ev := range in {
+			if ev.Kind == KAlive {
+				// nothing of the reply: no part of what it collects
+				if !send(ev) {
+					return
+				}
+				continue
+			}
 			col.add(ev)
 			switch ev.Kind {
 			case KStart:
@@ -1032,15 +1095,25 @@ func (s *Server) askTranslated(p provider.Provider, to provider.Protocol, model 
 				}
 			}
 			var failed error
-			err := readSSE(rd, func(_, data string) error {
+			told := time.Now() // when the reader was last sent anything
+			err := readSSEAlive(rd, func(_, data string) error {
 				if err := dec(data, func(ev Event) {
 					if failed == nil {
 						failed = send(ev)
+						told = time.Now()
 					}
 				}); err != nil {
 					return err
 				}
 				return failed
+			}, func() {
+				// a provider still queued or thinking — keepalives,
+				// response.in_progress — is heard from with nothing to
+				// translate: the reader hears that it goes on (#2316)
+				if failed == nil && time.Since(told) >= keepaliveGap {
+					failed = send(Event{Kind: KAlive})
+					told = time.Now()
+				}
 			})
 			if err != nil && failed == nil && ctx.Err() == nil {
 				send(Event{Kind: KError, Text: p.Name + ": " + err.Error()})

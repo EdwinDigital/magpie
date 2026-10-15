@@ -29,6 +29,9 @@ type Library struct {
 	// Hooks are commands the agents ticked for each run at a point of
 	// their turn (hooks.go, #1790)
 	Hooks []*Hook `json:"hooks,omitempty"`
+	// Subagents are agents of their own the agents ticked for each can
+	// hand a task to (subagents.go, #2283)
+	Subagents []*Subagent `json:"subagents,omitempty"`
 	// Applied is what magpie wrote into each agent, so that what it takes
 	// away is only ever its own.
 	Applied map[string]*Applied `json:"applied,omitempty"`
@@ -57,6 +60,9 @@ type Library struct {
 	// untouched are the agents' copies takeEdits found unchanged since
 	// magpie made them, for the sync not to look through them again
 	untouched map[string]bool
+	// blockedSkills are copies takeEdits couldn't scan, kept in place for
+	// this sync rather than replaced or removed. Keys are physical paths.
+	blockedSkills map[string]bool
 }
 
 // Instructions are one shared text, and for each agent whether it gets it
@@ -74,6 +80,10 @@ type Instructions struct {
 type InstrSet struct {
 	ID   string `json:"id"`
 	Name string `json:"name"` // "" for the first, which the page calls Default
+	// File is a file of the user's own the set's text is kept in instead,
+	// read each time and written when the set is saved: one shared file
+	// such as ~/.agents/AGENTS.md, kept by hand or by another tool.
+	File string `json:"file,omitempty"`
 }
 
 // Applied is what magpie last wrote into one agent.
@@ -91,9 +101,24 @@ type Applied struct {
 	// Hooks are the entries magpie wrote into the agent's hooks, each
 	// exactly as written: one changed since is the user's (hooks.go)
 	Hooks []HookEntry `json:"hooks,omitempty"`
+	// Subagents are the files magpie wrote for the subagents, each with
+	// the hash of what it wrote: one changed since is the user's
+	Subagents []SubagentFile `json:"subagents,omitempty"`
 }
 
-var mu sync.Mutex // one change at a time, from the page or the CLI's process
+var mu lock // one change at a time, from the page or the CLI's process
+
+// lock is a mutex that counts the times it was taken, for Sync to tell
+// whether anything held it between two of its steps.
+type lock struct {
+	sync.Mutex
+	held uint64
+}
+
+func (m *lock) Lock() {
+	m.Mutex.Lock()
+	m.held++
+}
 
 // Dir is where the library's own files are: the instructions and the skills.
 func Dir() string { return filepath.Join(settings.Dir(), "library") }
@@ -125,6 +150,10 @@ func (l *Library) save() error {
 	sort.Slice(l.Hooks, func(i, j int) bool { return l.Hooks[i].Name < l.Hooks[j].Name })
 	for _, h := range l.Hooks {
 		h.Agents = orNone(h.Agents)
+	}
+	sort.Slice(l.Subagents, func(i, j int) bool { return l.Subagents[i].Name < l.Subagents[j].Name })
+	for _, s := range l.Subagents {
+		s.Agents = orNone(s.Agents)
 	}
 	for _, a := range l.Applied {
 		sort.Strings(a.MCP)

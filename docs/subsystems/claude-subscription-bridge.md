@@ -98,12 +98,28 @@ cache.
    earlier images read as just sent. A first turn, or messages with no
    reply among them, are told as before. `start` logs "a new Claude Code
    is told the whole conversation" with the message and image counts.
+   Claude Code notes every image of the message after it, so after the
+   turn to answer: `[Image: source: …/images/N.png]` where it keeps the
+   images (the session kept on disk), or the size it showed a large one
+   at. When the history has images, the turn's opening says those notes
+   are the history's, or the history's first and then the turn's
+   (`currentTurnOpen`, #1751). Told nothing, the model said a text-only
+   turn had an image attached and offered to open the path.
 
 A Claude Code that ends before it answers a control request
 (`cliControl`: `initialize`, the safety context) is reported with its
 exit status and the end of its stderr (`endedBefore`), as one that ends
 before it reads its input is (`whyEnded`). The tool-results path and
 `resume` already start a new run when the one they found has ended.
+
+magpie ends a run (`abort`) by asking Claude Code to end with SIGTERM
+(`proc.Tree.Stop`) and kills its tree only once it has exited or
+`stopGrace` (5s) has passed; Windows kills the job at once. Claude Code
+removes `~/.claude/.oauth_refresh.lock` as it exits on SIGTERM (2.1.299
+exits within half a second), and the SIGKILL magpie sent before left the
+lock for the next requests to fail on (#2195). The run counts as ended at
+once; the gateway stopping (`abortAll`) waits for every tree. Covered by
+`TestClaudeAbortAllowsLockCleanup` and `TestTreeStop*`.
 
 ## A side question after a reply (#1638)
 
@@ -346,6 +362,23 @@ ways a run is told them keep them apart from the tool's output:
   next request holds the tool's output, then that reminder, and the turn
   ends with one `result`. Handed over after the results, a message could
   come after the model's reply and start a turn of its own.
+
+What the client's agent puts beside the results is not the user's (#2060).
+Claude Code 2.1.296 sends its hooks' notices ("PreToolUse:Bash hook
+additional context: …"), its `<total_tokens>` count and a message the user
+sent mid-turn as one `{role: "system"}` message after the results; older
+versions send them as `<system-reminder>` text blocks in the results'
+message. `saidWithResults` takes from a system message only the words
+after "The user sent a new message while you were working:" (or "The user
+sent the following message:"), without Claude Code's ask around them, and
+leaves out a text that `agentNotice` knows: empty within its reminder
+tags, a hook's notice of a known kind, a token count, or a lead `userWords`
+drops (`injected`). Before, nearly every call of a client with a hook was
+followed by "The user sent a new message while you were working:" and the
+hook's output, or nothing (the run's Claude Code doesn't show a bare
+`<total_tokens>`). `renderParts` closes a result before such a notice
+without marking it `[user message]`. A reminder with other words in it is
+still the user's, as #872's was.
 
 Where the result ends is said by the message's parts alone. A tool whose
 output says "Do not use tools." has it told as its output, inside the
