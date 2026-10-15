@@ -3,7 +3,7 @@
 (() => {
   let saved = window.bootPrefs?.enterprise || null;
   let formDraft = null, revision = "", dirty = false, busy = false;
-  let choices = [], agentChoices = [], loaded = false, query = "", agentQuery = "", polling = false, snapshot = 0;
+  let choices = [], agentChoices = [], loaded = false, query = "", agentQuery = "", polling = false, snapshot = 0, editorLoad = null;
   const fields = ["appName", "logoAsset", "visibleProviders", "visibleAgents", "showPluginProviderEntry", "showCustomProviderEntry", "publicPluginCatalog", "libraryEnabled"];
   const defaultAgents = ["codex", "claude", "claude-desktop", "vscode", "copilot", "workbuddy"];
   const folded = { visibleProviders: true, visibleAgents: true };
@@ -263,6 +263,28 @@
     dirty = false;
     formDraft = JSON.parse(JSON.stringify(saved.effective)); formDraft.visibleAgents ??= [...defaultAgents]; formDraft.overrideFields = [...inheritedFields(saved.config)]; revision = saved.revision;
   }
+  function refreshSelections() {
+    if (!formDraft) return;
+    const focused = document.activeElement;
+    const focusID = focused?.matches(".enterprise-search") ? focused.id : "";
+    const focusChoice = focused?.matches(".enterprise-choice input") ? { name: focused.name, value: focused.value } : null;
+    for (const [key, title, candidates, searchID] of [
+      ["visibleProviders", "Visible providers", choices, "enterprise-providerSearch"],
+      ["visibleAgents", "Visible agents", agentChoices, "enterprise-agentSearch"],
+    ]) {
+      document.querySelector(`#setPage-enterprise [data-selection="${key}"]`)?.replaceWith(selectionSection(key, title, candidates, searchID));
+    }
+    if (focusID) document.getElementById(focusID)?.focus({ preventScroll: true });
+    else if (focusChoice) [...document.querySelectorAll("#setPage-enterprise .enterprise-choice input")].find(input => input.name === focusChoice.name && input.value === focusChoice.value)?.focus({ preventScroll: true });
+  }
+  async function configureProviders(ids) {
+    if (!await show("settings")) return;
+    folded.visibleProviders = false;
+    query = ids?.length === 1 ? ids[0] : "";
+    setSetTab("enterprise", true);
+    await load();
+    refreshSelections();
+  }
   async function persist(config, save) {
     if (busy || uploading) return; busy = true; save.disabled = true;
     const result = document.querySelector("#enterpriseResult");
@@ -273,8 +295,12 @@
     } catch (error) { if (result) result.textContent = t(error.message); status(t(error.message), "err"); }
     finally { busy = false; save.disabled = false; if (!dirty) render(); }
   }
-  async function load() {
-    if (polling) return; polling = true;
+  function load() {
+    if (editorLoad) return editorLoad;
+    editorLoad = loadEditor().finally(() => { editorLoad = null; });
+    return editorLoad;
+  }
+  async function loadEditor() {
     const started = snapshot;
     try {
       const [config, candidates, agents] = await Promise.all([api("enterprise"), api("enterprise/providers"), api("enterprise/agents")]);
@@ -284,10 +310,11 @@
       const changedChoices = JSON.stringify(choices) !== JSON.stringify(nextChoices) || JSON.stringify(agentChoices) !== JSON.stringify(nextAgents);
       choices = nextChoices; agentChoices = nextAgents; loaded = true;
       if (started === snapshot) apply(config);
-      if (changedChoices || !document.querySelector("#setPage-enterprise form")) render();
-    } catch (error) { status(error.message, "err"); } finally { polling = false; }
+      if (changedChoices && dirty) refreshSelections();
+      else if (changedChoices || !document.querySelector("#setPage-enterprise form")) render();
+    } catch (error) { status(error.message, "err"); }
   }
-  window.enterpriseUI = { load, logoImage, nameNode: (tag, cls) => { const node = document.createElement(tag); node.className = cls || ""; node.dataset.appBrand = ""; node.textContent = effective()?.appName || "magpie"; return node; }, effective, birdMotion, agentAllowed, allow, visible, providerID, flag, catalog, apply, render, refresh, dirty: () => dirty, discard, logoURL, updatePolicy: () => saved?.updatePolicy, permittedView: (v) => v !== "library" || flag("libraryEnabled") };
+  window.enterpriseUI = { load, configureProviders, logoImage, nameNode: (tag, cls) => { const node = document.createElement(tag); node.className = cls || ""; node.dataset.appBrand = ""; node.textContent = effective()?.appName || "magpie"; return node; }, effective, birdMotion, agentAllowed, allow, visible, providerID, flag, catalog, apply, render, refresh, dirty: () => dirty, discard, logoURL, updatePolicy: () => saved?.updatePolicy, permittedView: (v) => v !== "library" || flag("libraryEnabled") };
   window.receiveEnterprise = apply;
   if (saved) { brand(); navigation(); }
   setInterval(() => { if (!document.hidden && saved) refresh(); }, 2000);

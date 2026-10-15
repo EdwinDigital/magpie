@@ -24249,8 +24249,13 @@ function fitTop() {
   top.classList.add("crowded");
   if (!fits()) top.classList.add("packed");
 }
-const topFit = new ResizeObserver(fitTop);
-for (const e of [".top", ".brand", ".actions", "#nav"]) topFit.observe($(e));
+// Fitting changes observed widths; defer it outside ResizeObserver delivery.
+const topFit = new ResizeObserver(() => requestAnimationFrame(fitTop));
+// Panel mode removes the main navigation before the shared page initializes.
+for (const selector of [".top", ".brand", ".actions", "#nav"]) {
+  const target = $(selector);
+  if (target) topFit.observe(target);
+}
 document.fonts?.ready.then(fitTop);
 // a font picked later (Settings' Font) can still be loading when it's applied
 document.fonts?.addEventListener("loadingdone", fitTop);

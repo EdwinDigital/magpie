@@ -69,6 +69,7 @@ func pluginSubs() []pluginSubJSON {
 // pluginEntryJSON is a plugin as Settings → Plugins lists it.
 type pluginEntryJSON struct {
 	plugin.Entry
+	Name            string   `json:"name,omitempty"`  // friendly label, separate from Spec and provider ids
 	Error           string   `json:"error,omitempty"` // why it didn't load
 	Providers       []string `json:"providers"`       // the names of those it signs in to
 	HiddenProviders []string `json:"hiddenProviders,omitempty"`
@@ -134,7 +135,8 @@ type pluginsJSON struct {
 	Plugins []pluginEntryJSON `json:"plugins"`
 	Bun     bool              `json:"bun"` // Bun is here; adding the first plugin downloads it otherwise
 	BunVer  string            `json:"bunVersion"`
-	Error   string            `json:"error,omitempty"` // the plugins couldn't be asked
+	Error   string            `json:"error,omitempty"`   // the plugins couldn't be asked
+	Loading bool              `json:"loading,omitempty"` // provider metadata is still being listed
 	// Picker is whether this magpie can show the system's folder picker:
 	// `magpie web` has none, and the page then offers no button for it
 	Picker bool `json:"picker"`
@@ -182,7 +184,10 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 	// which is the whole of the providers RPC; the page here uses none of
 	// those models, only the names, so waiting on them held the Installed
 	// list for one vendor after another every time it was opened.
-	for _, p := range plugin.Cached() {
+	// An empty list means "none" only once that same snapshot was answered.
+	pps, answered, loading := plugin.CachedState()
+	s.Loading = loading
+	for _, p := range pps {
 		names[p.Spec] = append(names[p.Spec], p.Name)
 		idName[p.ID] = p.Name
 		id := "plugin:" + provider.PluginID(p.ID)
@@ -193,9 +198,6 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 			hidden[p.Spec] = append(hidden[p.Spec], p.Name)
 		}
 	}
-	// whether that is the plugins' own answer or what was kept from before
-	// they were last asked: an empty list means "none" only in the first case
-	answered := plugin.Answered()
 	// npm's newest, as it said last: asking it again is /api/plugins/npm's
 	known := plugin.InfoCached(npmNames(l.Plugins))
 	mws := middleware.States()
@@ -208,6 +210,13 @@ func pluginsState(ctx context.Context, w Windows) pluginsJSON {
 	}
 	for _, e := range l.Plugins {
 		j := pluginEntryJSON{Entry: e, Error: errs[e.Spec], Providers: names[e.Spec], HiddenProviders: hidden[e.Spec], Version: plugin.Installed(e.Spec), Named: answered}
+		j.Name = plugin.DisplayName(e.Spec)
+		if e.Archive != "" && j.Name == "" {
+			j.Name = strings.Join(plugin.KnownNames(e.Spec), " · ")
+			if j.Name == "" {
+				j.Name = plugin.PackageName(e.Spec)
+			}
+		}
 		if j.Error == "" && s.Error != "" && !e.Off && !plugin.InMagpieOnly(plugin.Target(e.Spec)) {
 			j.Error = s.Error
 		}

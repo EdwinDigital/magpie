@@ -94,6 +94,30 @@ retires/restarts the host on its next use. Enterprise Bun binaries use the packa
 executable basename within the enterprise cache; only that cache's previous
 `magpie-bun` name is migrated, never public magpie's copy.
 
+Installed rows, their detail headings and removal confirmations use the optional
+`package.json.displayName` before a catalog/folder label. For ZIP imports without
+that field, the last known supplier names are used before the package name;
+disabled/failed plugins retain those labels. A technical package/user ID is never
+shortened by guessing which suffix is an ID. Specs, archive ownership, provider IDs
+and sign-ins remain unchanged. Packages without a friendly name or a named supplier
+still fall back to their real package name.
+
+`plugin.CachedState` returns provider data and listing status from the same
+snapshot. `/api/plugins.loading` marks a bounded provider refresh still in flight.
+While the Plugins page is visible, it refreshes installed metadata and provider
+descriptors until that listing ends. This brings a just-uploaded ZIP's friendly
+name and supplier actions into view without reopening the page or waiting on
+vendor models in the initial page response. It stops on completion/failure or
+when leaving the page, and asks no public catalog.
+
+A hidden supplier's installed row offers **Visible providers**, opening the
+enterprise selector expanded and filtered when it is a single supplier. Nothing
+is granted or saved by this action: the user must select suppliers and save.
+Visible signed-in suppliers with an active provider card offer **Models**, opening
+their normal editor. Sign-in actions exclude hidden suppliers. Candidate refresh
+retains enterprise form drafts; explicit ZIP installation is not permission to
+bypass the whitelist.
+
 Verification: `go test -tags nogui ./internal/plugin ./internal/gui -run
 'TestZIP|TestPluginZIP'` and `node --test
 internal/gui/tests/plugin-zip.test.cjs`. The latter checks both engines, all five

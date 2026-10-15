@@ -30,6 +30,7 @@
   let checking = false;  // Check for updates: npm being asked now
   let checked = null;    // ...and what it said: { at, by: spec → check }
   let shown = "";
+  let metadataTimer = 0;
 
   const SEARCH = "M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M10 10l3 3";
   const DOWN = "M8 3v7.5 M4.8 7.6 8 10.8l3.2-3.2 M3.5 13h9";
@@ -146,6 +147,18 @@
       failed = e.message;
     }
     merge();
+    metadataWhileLoading();
+  }
+  // Cached provider metadata arrives after host initialization. Keep the
+  // installed row's labels and visibility actions in step with that answer.
+  function metadataWhileLoading() {
+    clearTimeout(metadataTimer);
+    if (!mine?.loading) return;
+    metadataTimer = setTimeout(() => {
+      if (view !== "plugins") return;
+      if (document.hidden || busy.size) { metadataWhileLoading(); return; }
+      refresh();
+    }, 2500);
   }
   // a repository tagged magpie-plugin as the market's cards read a
   // listing: its owner as the publisher, its version, and installed by its
@@ -240,6 +253,7 @@
       if (view === "providers") renderProviders();
     } catch (e) { status(e.message, "err"); }
     draw();
+    metadataWhileLoading();
     window.renderPluginDot?.();
     askNPM(true);
     askGit(true);
@@ -960,7 +974,7 @@
   // package's or the folder's
   function shownName(e) {
     const pkg = name(e.spec);
-    return (listings || []).find((x) => x.package === pkg)?.name || (isGit(e.spec) && e.package) || label(e.spec);
+    return e.name || (listings || []).find((x) => x.package === pkg)?.name || (isGit(e.spec) && e.package) || label(e.spec);
   }
 
   function installedRow(e) {
@@ -1062,6 +1076,7 @@
     if (sub.textContent) who.append(sub);
     const hiddenProviders = subs.length ? subs.filter(x => window.enterpriseUI?.allow(supplierPolicyID(x)) === false).map(x => x.name) : e.hiddenProviders;
     if (!e.off && !e.error && hiddenProviders?.length) {
+      r.classList.add("pm-provider-actions");
       who.append(el("div", "pm-note", t("Hidden in enterprise settings: {names}. Select them under Enterprise configuration → Visible providers.", { names: hiddenProviders.join(t(", ")) })));
     }
     if (!ask) for (const c of clashes) who.append(clashLine(e, c, nameOfSpec));
@@ -1093,11 +1108,26 @@
       u.onclick = () => act(pkg, "prefer", { spec: e.spec, provider: c.id }, () => status(t("{name} now runs on {plugin}", { name: c.name, plugin: shownName(e) }), "ok"));
       val.append(u);
     }
-    if (!e.off && !e.error && subs.some((x) => !x.signedIn)) {
+    if (!e.off && !e.error && hiddenProviders?.length) {
+      const configure = el("button", "text primary pm-configure-providers", t("Visible providers"));
+      configure.type = "button";
+      configure.disabled = busy.size > 0;
+      configure.onclick = () => window.enterpriseUI?.configureProviders(subs.map(supplierPolicyID));
+      val.append(configure);
+    }
+    const visibleSubs = subs.filter(x => window.enterpriseUI?.allow(supplierPolicyID(x)) !== false);
+    for (const x of !e.off && !e.error ? visibleSubs.filter(x => x.signedIn && providers?.providers?.some(p => p.id === x.id)) : []) {
+      r.classList.add("pm-provider-actions");
+      const models = el("button", "text pm-configure-models", visibleSubs.length > 1 ? x.name : t("Models"));
+      models.type = "button"; models.disabled = busy.size > 0;
+      models.onclick = () => openProvider(x.id);
+      val.append(models);
+    }
+    if (!e.off && !e.error && visibleSubs.some((x) => !x.signedIn)) {
       // signed in to one of its subscriptions already (Qoder, beside Qoder
       // CN; #556): a blue Sign in read as the plugin signed out, so the
       // button names the one it signs in to and stays quiet
-      const out = subs.find((x) => !x.signedIn), some = subs.some((x) => x.signedIn);
+      const out = visibleSubs.find((x) => !x.signedIn), some = visibleSubs.some((x) => x.signedIn);
       const s = el("button", "text" + (here || some ? "" : " primary"), some ? t("Sign in to {name}", { name: out.name }) : t("Sign in"));
       s.onclick = () => pluginSignIn(out.id);
       val.append(s);
@@ -1142,11 +1172,11 @@
         draw();
         return;
       }
-      if (await confirmRemoval(l?.name || pkg, rm.title)) remove();
+      if (await confirmRemoval(shownName(e), rm.title)) remove();
     };
     val.append(onoff, rm);
     r.append(val);
-    r.onclick = (ev) => { if (!ev.target.closest("button, .pm-opts")) detail(l || (isGit(e.spec) ? { package: e.spec, name: e.package || e.spec, icon: e.icon, npm: { version: e.version, repository: gitWeb(e.spec) } } : { package: pkg, name: label(e.spec), icon: e.icon, npm: { version: e.latest } })); };
+    r.onclick = (ev) => { if (!ev.target.closest("button, .pm-opts")) detail(l ? { ...l, name: shownName(e) } : (isGit(e.spec) ? { package: e.spec, name: shownName(e), icon: e.icon, npm: { version: e.version, repository: gitWeb(e.spec) } } : { package: pkg, name: shownName(e), icon: e.icon, npm: { version: e.latest } })); };
     return r;
   }
 

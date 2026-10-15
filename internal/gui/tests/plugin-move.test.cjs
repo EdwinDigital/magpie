@@ -19,7 +19,7 @@ const { chromium, webkit } = require("playwright");
 const assets = path.resolve(__dirname, "../assets");
 const pkg = "@magpie-community/opencode-zed-auth";
 
-function serve(lang, posts) {
+function serve(lang, posts, firstMove) {
   let move = { package: pkg, state: "" };
   let tries = 0;
   const payload = () => {
@@ -54,7 +54,7 @@ function serve(lang, posts) {
     }
     if (url.pathname === "/api/provider/move" || url.pathname === "/api/provider/moveback") {
       posts.push({ path: url.pathname, body: route.request().postDataJSON() });
-      await new Promise((r) => setTimeout(r, 400)); // long enough to read the button
+      if (url.pathname.endsWith("/move") && tries === 0 && firstMove) await firstMove;
       // the first move can't reach npm; the second goes through
       if (url.pathname.endsWith("/move") && !tries++) {
         move = { package: pkg, state: "failed", error: "magpie couldn't reach npm to install the plugin.", why: { code: "offline" } };
@@ -94,8 +94,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const page = await (await browser.newContext({ viewport: { width: 900, height: 700 }, reducedMotion: "reduce" })).newPage();
       page.setDefaultTimeout(5000);
       const errors = [], posts = [];
+      let releaseMove;
+      const firstMove = new Promise(resolve => { releaseMove = resolve; });
+      t.after(() => releaseMove());
       page.on("pageerror", (e) => errors.push(e.message));
-      await page.route("**/*", serve(lang, posts));
+      await page.route("**/*", serve(lang, posts, firstMove));
       await page.goto("http://magpie.test/?view=providers");
 
       // the deprecation notice over the list opens Zed's editor
@@ -125,8 +128,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       for (let i = 0; i < 20 && (await btn.boundingBox()).y > box.y + 40; i++) {
         const was = await at();
+        const max = await body.evaluate(e => e.scrollHeight - e.clientHeight);
+        if (was >= max) break;
+        await page.evaluate(() => {
+          window.moveTestWheel = new Promise(resolve => document.addEventListener("wheel", () => requestAnimationFrame(() => requestAnimationFrame(resolve)), { once: true, passive: true }));
+        });
         await page.mouse.wheel(0, 30);
-        await page.waitForTimeout(80);
+        // mouse.wheel returns before WebKit consumes the event. Observe this
+        // wheel before taking the scroll position that the move must preserve.
+        await page.evaluate(() => window.moveTestWheel);
         if (await at() === was) break;
       }
       const top = await at();
@@ -139,8 +149,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       };
 
       await press();
-      await page.waitForFunction((busy) => [...document.querySelectorAll("#modal .move button")].some((b) => b.textContent === busy), w.busy, { timeout: 300 });
+      await page.waitForFunction((busy) => [...document.querySelectorAll("#modal .move button")].some((b) => b.textContent === busy), w.busy);
       assert.equal(await btn.isDisabled(), true, "the button can be pressed again mid-move");
+      releaseMove();
 
       // it fails: said under the button, the editor open where it was
       const why = ed.locator(".move-why");

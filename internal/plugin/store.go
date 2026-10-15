@@ -897,3 +897,18 @@ func PackageName(spec string) string {
 	}
 	return spec
 }
+
+// DisplayName is optional presentation metadata, never an installation or auth id.
+func DisplayName(spec string) string {
+	dir := Target(spec)
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	var pkg struct {
+		DisplayName string `json:"displayName"`
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil && json.Unmarshal(b, &pkg) == nil {
+		return strings.TrimSpace(pkg.DisplayName)
+	}
+	return ""
+}

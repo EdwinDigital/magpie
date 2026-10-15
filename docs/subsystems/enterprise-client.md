@@ -197,6 +197,12 @@ fails closed and must be disconnected by its former owner.
 Installed plugins distinguish loading failures from suppliers hidden by enterprise
 settings. Their suppliers remain selectable without reinstallation, and the row's
 visibility hint updates when the policy changes; it never auto-grants visibility.
+An installed row's Visible providers action opens the matching selector expanded;
+the user still has to check and save it. Asynchronous plugin metadata refreshes
+bring newly loaded suppliers into view, and the selector can refresh its candidates
+without discarding an unsaved branding/visibility draft. Visible signed-in suppliers
+link to their model editor. ZIP rows prefer friendly labels over technical package
+IDs, as described in the [ZIP contract](provider-plugins.md#explicit-installation-from-a-zip).
 Raw plugin descriptors use `id`/`pid`, not the mapped Agent row's `agent` field.
 The host gets this client's effective `MAGPIE_ADDR`, restarts on a port change,
 and uses a branded Bun basename in its own cache, not public magpie's host.

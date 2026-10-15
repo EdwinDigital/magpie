@@ -97,10 +97,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await page.locator("#prefs").click();
       const subs = page.locator("#side .nav-sub:not(.leaving) .nav-s");
       await subs.first().waitFor();
-      assert.equal(await subs.count(), 8);
+      assert.deepEqual(await subs.evaluateAll(bs => bs.map(b => b.dataset.of)), [
+        "setTab-general", "setTab-enterprise", "setTab-usage", "setTab-network",
+        "setTab-models", "setTab-privacy", "setTab-otel", "setTab-sync", "setTab-about",
+      ]);
       assert.equal(await page.locator("#setTabs").isVisible(), false, "the page's own strip is hidden");
-      assert.deepEqual(await subs.evaluateAll((ss) => ss.map((s) => s.dataset.of)),
-        ["setTab-general", "setTab-usage", "setTab-network", "setTab-models", "setTab-privacy", "setTab-otel", "setTab-sync", "setTab-about"]);
       assert.deepEqual(await subs.evaluateAll((ss) => ss.filter((s) => s.scrollWidth > s.clientWidth + 1).map((s) => s.textContent)), [], "tab names read whole");
       // the selection sets off as the row is pressed, ahead of the page,
       // and goes back when the press leaves the row

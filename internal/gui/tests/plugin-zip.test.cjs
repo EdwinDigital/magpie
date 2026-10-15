@@ -5,25 +5,40 @@ const path = require("node:path");
 const http = require("node:http");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const assets = path.resolve(__dirname, "../assets");
+const assets = process.env.ASSET_DIR || path.resolve(__dirname, "../assets");
 const archive = Buffer.from("UEsDBBQAAAAAAMyeTF1/4c6CLAAAACwAAAAMAAAAcGFja2FnZS5qc29ueyJuYW1lIjoiY29tcGFueS1leGFtcGxlIiwibWFpbiI6ImluZGV4LmpzIn1QSwMEFAAAAAAAzJ5MXX+/N6QfAAAAHwAAAAgAAABpbmRleC5qc2V4cG9ydCBkZWZhdWx0IGFzeW5jICgpID0+ICh7fSlQSwECFAMUAAAAAADMnkxdf+HOgiwAAAAsAAAADAAAAAAAAAAAAAAAgAEAAAAAcGFja2FnZS5qc29uUEsBAhQDFAAAAAAAzJ5MXX+/N6QfAAAAHwAAAAgAAAAAAAAAAAAAAIABVgAAAGluZGV4LmpzUEsFBgAAAAACAAIAcAAAAJsAAAAAAA==", "base64");
 const words = { en: "Upload ZIP", zh: "上传 ZIP", "zh-TW": "上傳 ZIP", ja: "ZIP をアップロード", de: "ZIP hochladen" };
+
+async function reachSetting(page, control) {
+  const pane = await page.locator("#view-settings").boundingBox(), target = await control.boundingBox();
+  if (target.y < pane.y + 4 || target.y + target.height > pane.y + pane.height - 12) {
+    await page.mouse.move(pane.x + 3, pane.y + pane.height / 2);
+    await page.mouse.wheel(0, target.y - pane.y - pane.height / 2);
+    await page.waitForTimeout(300);
+  }
+}
 
 function fixture(lang, theme) {
   const effective = { appName: "Acme", visibleProviders: [], publicPluginCatalog: false, libraryEnabled: false };
   const enterprise = { effective, defaults: effective, revision: "one", restartRequired: [] };
-  const ctl = { uploads: [], requests: [], plugins: [], subscriptions: [], enterprise, errors: [], fail: false, release: null };
+  const ctl = { uploads: [], requests: [], plugins: [], subscriptions: [], candidates: [], providerRows: [], posts: [], enterprise, errors: [], fail: false, release: null };
   ctl.serve = async route => {
     const req = route.request(), u = new URL(req.url());
     ctl.requests.push(u.pathname);
     const json = data => route.fulfill({ json: data });
     if (u.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs=${JSON.stringify({ lang, theme, web: true, enterprise })};` });
     if (u.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme, version: "1.0.5", textSize: 100, fx: { rate: 7.2 }, lanURLs: [] } });
-    if (u.pathname === "/api/providers") return json({ providers: [], presets: [], excluded: [], plugins: ctl.subscriptions, gateway: { running: true, url: "http://127.0.0.1:3999", groups: [], calls: [] } });
-    if (u.pathname === "/api/enterprise") return json(enterprise);
-    if (u.pathname === "/api/enterprise/providers") return json([]);
+    if (u.pathname === "/api/providers") return json({ providers: ctl.providerRows, presets: [], excluded: [], plugins: ctl.subscriptions, gateway: { running: true, url: "http://127.0.0.1:3999", groups: [], calls: [] } });
+    if (u.pathname === "/api/enterprise") {
+      if (req.method() === "POST") {
+        const body = req.postDataJSON(); ctl.posts.push(body);
+        enterprise.config = body.config; enterprise.effective = body.config; enterprise.revision = "saved-" + ctl.posts.length;
+      }
+      return json(enterprise);
+    }
+    if (u.pathname === "/api/enterprise/providers") return json(ctl.candidates);
     if (u.pathname === "/api/groups") return json({ groups: [], pools: [] });
-    if (u.pathname === "/api/plugins") return json({ plugins: ctl.plugins, bun: true, picker: false });
+    if (u.pathname === "/api/plugins") return json({ plugins: ctl.plugins, loading: !!ctl.loading, bun: true, picker: false });
     if (u.pathname === "/api/plugins/upload") return route.continue();
     if (u.pathname.startsWith("/api/")) return json({});
     if (u.host !== ctl.host || !/^\/[\w./-]*$/.test(u.pathname)) throw new Error("unexpected external request: " + u.href);
@@ -123,6 +138,82 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
 }
 
 for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"]) {
+  test(engine + ": ZIP friendly names and explicit supplier selection reach model configuration", async t => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch());
+    t.after(() => browser.close());
+    for (const lang of Object.keys(words)) await t.test(lang, async sub => {
+      const context = await browser.newContext({ viewport: { width: lang === "de" ? 430 : 1024, height: 900 } });
+      sub.after(() => context.close());
+      const page = await context.newPage(), ctl = fixture(lang, lang === "zh-TW" ? "dark" : "light");
+      page.setDefaultTimeout(7000);
+      ctl.host = "zip.fixture";
+      const spec = "/config/plugins/imports/zip-987654/opencode-private-user-deadbeef-auth", id = "private-user-deadbeef";
+      ctl.plugins = [{ spec, archive: "zip-987654", name: "Company Gateway", providers: ["Private Models"], hiddenProviders: ["Private Models"], version: "1.2.3", moved: [], named: true }];
+      ctl.subscriptions = [{ id, pid: id, name: "Private Models", icon: "generic", spec, signedIn: true, models: 1, methods: [{ type: "api", label: "API key" }] }];
+      ctl.candidates = [{ id: "plugin:" + id, name: "Private Models", available: true }];
+      ctl.providerRows = [{ id, name: "Private Models", icon: "generic", off: false, agents: [], key: {}, account: { agent: id, builtin: id, name: "Private Models", user: "fixture", logins: [{ user: "fixture", active: true, on: true }] }, models: [{ id: "test-model", name: "Test Model", on: true, selected: true, context: 32768, output: 4096, protocols: ["chat"] }] }];
+      const readyPlugins = ctl.plugins, readySubs = ctl.subscriptions;
+      ctl.plugins = [{ ...readyPlugins[0], name: "opencode-private-user-deadbeef-auth", providers: [], hiddenProviders: [], named: false }];
+      ctl.subscriptions = []; ctl.loading = true;
+      page.on("pageerror", e => ctl.errors.push(e.message));
+      await page.route("**/*", ctl.serve);
+      await page.goto("http://zip.fixture/?view=plugins");
+      const row = page.locator("#view-plugins .pm-row");
+      await row.waitFor();
+      ctl.plugins = readyPlugins; ctl.subscriptions = readySubs; ctl.loading = false;
+      await row.locator(".name > span", { hasText: "Company Gateway" }).waitFor();
+      assert.equal(await row.locator(".name > span").first().innerText(), "Company Gateway", "the display name is not a technical package/user ID");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "supplier visibility actions fit narrow layouts");
+      if (process.env.ARTIFACT_DIR) {
+        await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `zip-supplier-${engine}-${lang}.png`) });
+      }
+      await row.locator(".name > span").first().click();
+      await page.locator("#modal .pm-detail").waitFor();
+      assert.equal(await page.locator("#modal .pm-name b").innerText(), "Company Gateway", "the detail heading uses the same friendly name");
+      await page.locator("#modal .bar button").last().click();
+      assert.equal(ctl.posts.length, 0, "installation never silently grants supplier visibility");
+      await row.locator(".pm-configure-providers").click();
+      await page.locator('#setPage-enterprise input[name="provider"]').waitFor({ state: "visible" });
+      assert.equal(await page.locator('[data-selection="visibleProviders"] .fold').getAttribute("aria-expanded"), "true");
+      const checkbox = page.locator(`input[value="plugin:${id}"]`);
+      assert.equal(await checkbox.isChecked(), false);
+      await reachSetting(page, checkbox);
+      await checkbox.check();
+      const appName = page.locator("#enterprise-appName");
+      await reachSetting(page, appName);
+      await appName.fill("Acme draft");
+      await reachSetting(page, checkbox);
+      await checkbox.focus();
+      ctl.candidates.push({ id: "plugin:another-private-supplier", name: "Another Supplier", available: true });
+      await page.evaluate(() => window.enterpriseUI.load());
+      assert.equal(await page.locator("#enterprise-appName").inputValue(), "Acme draft", "refreshing candidates keeps the branding draft");
+      assert.equal(await checkbox.isChecked(), true, "refreshing candidates keeps explicit selections");
+      assert.equal(await checkbox.evaluate(e => document.activeElement === e), true, "refreshing candidates keeps checkbox focus");
+      assert.equal(await page.locator('[data-selection="visibleProviders"] .fold .note').innerText(), "1 / 2", "new candidates appear without discarding the draft");
+      const save = page.locator('#setPage-enterprise button[type="submit"]');
+      await reachSetting(page, save);
+      await save.click();
+      await page.waitForFunction(id => window.enterpriseUI.allow("plugin:" + id), id);
+      assert.deepEqual(ctl.posts[0].config.visibleProviders, ["plugin:" + id]);
+      await page.locator('#nav [data-view="plugins"]').click();
+      await row.waitFor();
+      assert.equal(await row.locator(".pm-configure-providers").count(), 0);
+      assert.equal(await row.locator(".pm-note").count(), 0);
+      await row.locator(".pm-configure-models").click();
+      const model = page.locator('#modal .mchip', { hasText: "Test Model" });
+      await model.waitFor();
+      await model.click();
+      assert.equal(await model.evaluate(e => e.classList.contains("on")), false, "models can be changed in the supplier editor");
+      assert.deepEqual(ctl.errors, []);
+      assert.equal(ctl.requests.some(p => ["/api/plugins/listings", "/api/plugins/github", "/api/plugins/search"].includes(p)), false);
+      if (process.env.ARTIFACT_DIR) {
+        await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `zip-models-${engine}-${lang}.png`) });
+      }
+    });
+  });
+
   test(engine + ": installed suppliers explain enterprise visibility and update live", async t => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch());
     t.after(() => browser.close());

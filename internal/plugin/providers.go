@@ -439,6 +439,26 @@ func Answered() bool {
 	return provGood
 }
 
+// KnownNames preserves presentation labels for disabled or failed plugins,
+// without starting their host or exposing them as active providers.
+func KnownNames(spec string) []string {
+	provMu.Lock()
+	ps := provCache
+	provMu.Unlock()
+	if ps == nil {
+		if b, err := steady.ReadFile(providersPath()); err == nil {
+			_ = json.Unmarshal(b, &ps)
+		}
+	}
+	var names []string
+	for _, p := range ps {
+		if p.Spec == spec && p.Name != "" && !slices.Contains(names, p.Name) {
+			names = append(names, p.Name)
+		}
+	}
+	return names
+}
+
 // Settle waits for Cached's refreshes to end, stops the host, waits for
 // the hooks told of a change (Told) and forgets the plugins (UseCached
 // nil): for tests, whose folders the host runs in go when they end, so
@@ -470,11 +490,20 @@ func Settle() {
 // host: what is known of them when magpie has only just started. A
 // provider's sign-in is read afresh from plugin-auth.json.
 func Cached() []Provider {
+	ps, _, _ := CachedState()
+	return ps
+}
+
+// CachedState returns the same snapshot as Cached, with whether it was answered
+// and whether a bounded refresh can still replace it. Status belongs to the
+// returned snapshot, even when the background listing finishes before we return.
+func CachedState() ([]Provider, bool, bool) {
 	checkList()
 	l := list() // one read of plugins.json for the whole call
 	provMu.Lock()
 	ps := provCache
 	good := provGood
+	pending := !good && (provBusy || !provTried)
 	provMu.Unlock()
 	if ps == nil {
 		if b, err := steady.ReadFile(providersPath()); err == nil {
@@ -482,7 +511,7 @@ func Cached() []Provider {
 		}
 	}
 	if len(l.Plugins) == 0 {
-		return nil
+		return nil, good, false
 	}
 	auth := readAuth()
 	out := make([]Provider, 0, len(ps))
@@ -531,7 +560,7 @@ func Cached() []Provider {
 			go refreshProvidersInBackground(ctx, epoch)
 		}
 	}
-	return out
+	return out, good, pending
 }
 
 type storedAuth struct {

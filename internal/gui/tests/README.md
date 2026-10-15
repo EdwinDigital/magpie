@@ -1,5 +1,19 @@
 # Dropdown browser regression
 
+## Native panel startup
+
+`panel-enterprise.test.cjs` boots the desktop (`web:false`) panel with enterprise
+and public snapshots, all five languages and both engines. It asserts that
+window-only navigation is absent without interrupting state loading, configured
+Agents are displayed, Allowances switches in place, live visibility updates work,
+and no hide/main/quit or Agent-wiring action is sent. `ASSET_DIR` supports mutation
+checks and `ARTIFACT_DIR` saves screenshots. Browser plugin not available.
+
+`TestNativeEnterprisePanelStartupAndAllowances` runs the actual macOS WKWebView,
+native panel options and 125% page zoom against synthetic API replies. It confirms
+the panel stays open on both tabs. Its separate process uses `runAppKit` to isolate
+AppKit/WebKit folders, creates no gateway and reads no employee Agent/account state.
+
 ## Plugin ZIP upload
 
 `plugin-zip.test.cjs` checks the top **Upload ZIP** entry with public discovery
@@ -8,6 +22,9 @@ A local HTTP sink receives the real multipart bytes (WebKit's intercepted
 `postDataBuffer()` does not preserve arbitrary binary data). The test verifies
 the archive field/header, serialized bytes, busy/draft preservation, refresh,
 invalid-extension feedback, server-error recovery and same-file retry.
+It also covers a late cached ZIP descriptor, friendly row/detail names, explicit
+enterprise supplier selection and a working Models shortcut. Installation never
+grants visibility automatically and no public catalog is queried.
 `ARTIFACT_DIR` retains screenshots. Browser plugin not available; fixtures never
 contact a real third-party service or read employee configuration.
 
