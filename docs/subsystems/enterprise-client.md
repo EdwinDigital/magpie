@@ -111,6 +111,10 @@ the macOS bundle.
   a built-in page switched off. The Plugins page keeps its local Built-in tab
   and top installation form when the public catalog is closed; it makes no
   public discovery requests in that state. See [Plugin runtime](plugin-runtime.md).
+  A plugin page replacing Library inherits the same enterprise gate, including
+  its navigation, direct routes and row-menu actions. Turning Library off while
+  such a page is open returns to Providers; previously captured menu actions
+  cannot reopen it. Other plugin pages retain their normal behavior.
 - Uploads accept PNG/JPEG only, at most 2 MiB and 4 million pixels. `brandicon`
   strips source metadata, fits visible artwork without stretching on a 1024px
   canvas with 80% foreground, and generates two monochrome glyphs plus two
@@ -144,7 +148,9 @@ Hidden agents are rejected before their detector, installation checks and CLI
 queries. Native session/call enumeration, startup history warm-up and native
 usage scans also skip unselected stores before opening directories/databases,
 including WSL; retained gateway history and direct known-session reads are not
-deleted or newly authorized. Automatic catalog synchronization, startup legacy migrations, DSH's
+deleted or newly authorized. CodeBuddy's native session store follows the same
+selection gate. New Agent adapters, including OpenPencil, use the package-scoped
+provider ID and credential with the current display name. Automatic catalog synchronization, startup legacy migrations, DSH's
 wiring keeper, Claude Science's daemon keeper and Codex daemon checks skip them.
 Claude Science checks the current selection before reading its connection mark
 or probing/starting its CLI; selecting it again resumes its configured keeper.

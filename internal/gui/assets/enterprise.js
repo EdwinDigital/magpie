@@ -30,6 +30,7 @@
   }
   const visible = (p) => allow(providerID(p));
   const flag = (key) => effective() ? !!effective()[key] : true;
+  const permittedView = v => flag("libraryEnabled") || v !== "library" && window.magpie?.page?.(v)?.replaces !== "library";
   const catalog = () => flag("publicPluginCatalog");
   function logoImage(src, follow = src === logoURL()) {
     const img = document.createElement("img"); img.src = src; img.alt = "";
@@ -91,8 +92,9 @@
   systemDark.addEventListener("change", themeIcons);
   function navigation() {
     const b = document.querySelector('#nav [data-view="library"]');
-    if (b) b.hidden = !flag("libraryEnabled") || typeof gatewayMode !== "undefined" && gatewayMode || typeof featureHides === "function" && featureHides(b);
-    if (!flag("libraryEnabled") && typeof view !== "undefined" && view === "library") {
+    if (typeof navHides === "function") navHides();
+    else if (b) b.hidden = !flag("libraryEnabled");
+    if (typeof view !== "undefined" && !permittedView(view)) {
       show("providers");
     }
   }
@@ -314,7 +316,7 @@
       else if (changedChoices || !document.querySelector("#setPage-enterprise form")) render();
     } catch (error) { status(error.message, "err"); }
   }
-  window.enterpriseUI = { load, configureProviders, logoImage, nameNode: (tag, cls) => { const node = document.createElement(tag); node.className = cls || ""; node.dataset.appBrand = ""; node.textContent = effective()?.appName || "magpie"; return node; }, effective, birdMotion, agentAllowed, allow, visible, providerID, flag, catalog, apply, render, refresh, dirty: () => dirty, discard, logoURL, updatePolicy: () => saved?.updatePolicy, permittedView: (v) => v !== "library" || flag("libraryEnabled") };
+  window.enterpriseUI = { load, configureProviders, logoImage, nameNode: (tag, cls) => { const node = document.createElement(tag); node.className = cls || ""; node.dataset.appBrand = ""; node.textContent = effective()?.appName || "magpie"; return node; }, effective, birdMotion, agentAllowed, allow, visible, providerID, flag, catalog, apply, render, refresh, dirty: () => dirty, discard, logoURL, updatePolicy: () => saved?.updatePolicy, permittedView };
   window.receiveEnterprise = apply;
   if (saved) { brand(); navigation(); }
   setInterval(() => { if (!document.hidden && saved) refresh(); }, 2000);

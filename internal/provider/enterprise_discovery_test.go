@@ -119,8 +119,8 @@ func TestEnterpriseHiddenSourcesStillServeExplicitCredentialReads(t *testing.T) 
 	if _, ok := discoveredGrokCredential(); ok {
 		t.Fatal("hidden Grok auto-discovered")
 	}
-	if c, err := grokAccessToken(GrokHome(), "", false); err != nil || c.Key != "synthetic-grok" {
-		t.Fatalf("visibility denied explicit Grok request: %+v %v", c, err)
+	if c, ok := readGrokCredential(GrokHome()); !ok || c.Key != "synthetic-grok" {
+		t.Fatalf("visibility denied explicit Grok migration credential read: %+v %v", c, ok)
 	}
 	writeKiroCLI(t, map[string]any{"kirocli:social:token": map[string]any{"access_token": "synthetic-kiro", "refresh_token": "rt", "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano), "provider": "google", "profile_arn": "arn:aws:codewhisperer:us-east-1:1:profile/P"}})
 	if kiroOwnUser() != "" {

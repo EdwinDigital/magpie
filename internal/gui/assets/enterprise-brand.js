@@ -1,6 +1,24 @@
 // Audited application-owned translation keys. Third-party metadata is never rewritten.
 window.enterpriseBrandKeys = new Set([
   // Application-owned prose introduced by main; paths and third-party names stay literal.
+  "Uses only Cursor's own models, so magpie can't connect it",
+  "Uses only GitHub Copilot's own models, so magpie can't connect it",
+  "Uses only Goose's own providers, so magpie can't connect it",
+  "Uses only Devin's own models, so magpie can't connect it",
+  "Adds panels to magpie's own pages. They run shut off from the rest of magpie and can read only what its row lists",
+  "Takes the place of the {page} page, and reads nothing of magpie's",
+  "Adds panels to {where}, which read nothing of magpie's",
+  "magpie's built-in is retired, so this subscription stays on its plugin.",
+  "Plugins extend magpie",
+  "A plugin can also run in magpie's gateway on what agents send and get back, pick which account a routing asks, give every agent tools, connect an agent, or add a page of its own.",
+  "Gives every agent tools of its own, through magpie's MCP server",
+  "tools every agent can call, through magpie's MCP server",
+  "pages of their own in magpie's window, each shut off from the rest and reading only what it lists",
+  "OpenPencil reads its settings when it starts and writes them all back when it quits — quit OpenPencil before changing this, then open it and pick a magpie model in its chat's model picker.",
+  "magpie {ms}",
+  "magpie keeps the request and response of only the last 40 requests, until it quits. To keep every request's, turn on Request archive at the top of Usage › Requests.",
+  "Routing groups are off in Plugins › Built-in: the groups magpie finds, one model several providers serve, still route, but your own can't be made or changed here.",
+
   "The magpie provider is missing; reconnect the provider without changing this selection",
   "{agent} reaches magpie through a proxy that doesn't pass its requests on",
   "magpie's provider table stays, so sessions opened on magpie's models still open",
@@ -463,5 +481,6 @@ window.enterpriseBrandText = (text) => text
   .replace(/\bmagpie set openai_base_url\b/gi, "{app} set openai_base_url")
   .replace(/\bmagpie\s+(?=quota\b|accounts\b)/gi, "{cli} ")
   // German compounds are prose, unlike package names and protocol identifiers.
-  .replace(/\bmagpie-(?=Anbieter\b|Image\b|Backup\b|Endpunkt\b|Fenstern\b|Log\b|Modelle\b|Modellen\b|Schl\u00fcssel\b|Symbol\b|Teil\b|Teils\b|Tray\b|Version\b)/gi, "{app}-")
+  .replace(/\bmagpies\b/gi, "{app}s")
+  .replace(/\bmagpie-(?=Anbieter\b|Image\b|Backup\b|Endpunkt\b|Fenstern\b|Log\b|Modell\b|Modelle\b|Modellen\b|Schl\u00fcssel\b|Symbol\b|Teil\b|Teils\b|Tray\b|Version\b)/gi, "{app}-")
   .replace(/(^|[^{\w])\bmagpie\b(?![-\/:]|\.[\w]|\s+(?:quota|accounts|account|providers|provider|update|version|library|mcp|group|web|tui|gui|tray|panel|set|codex|claude|help|doctor|plugins|plugin|backup|s3|webdav|rtk|install|app|config|serve|proxy|skills|skill)\b)/gi, "$1{app}");

@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const assets = path.resolve(__dirname, "../assets");
+const assets = path.resolve(process.env.ASSET_DIR || path.resolve(__dirname, "../assets"));
 
 async function pressSettings(page, selector) {
   if (selector.startsWith("#setTab-")) selector += `:visible, .nav-sub:not(.leaving) button[data-of="${selector.slice(1)}"]`;
@@ -72,6 +72,49 @@ function fixture(lang, { native = false, theme = "light" } = {}) {
 }
 
 for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]]) {
+  test(`${engineName}: a plugin replacing Library cannot bypass enterprise policy`, async t => {
+    const browser = await engine.launch();
+    t.after(() => browser.close());
+    for (const lang of ["en", "zh", "zh-TW", "ja", "de"]) await t.test(lang, async sub => {
+      const context = await browser.newContext({ viewport: { width: 980, height: 900 } });
+      sub.after(() => context.close());
+      const page = await context.newPage(), f = fixture(lang);
+      page.setDefaultTimeout(8000);
+      page.on("pageerror", e => f.errors.push(e.message));
+      await page.route("**/*", f.serve);
+      const key = "plugin-corporate-library";
+      await page.route("**/api/plugin-pages", route => route.fulfill({ json: [{ key, spec: "/fixture/library", title: "Corporate Library", name: "library", replaces: "library", reads: [], actions: [{ id: "inspect", menu: "provider", title: "Inspect library" }], url: "/fixture-library.html" }] }));
+      await page.route("**/fixture-library.html", route => route.fulfill({ contentType: "text/html", body: `<script>window.libraryActions = 0; addEventListener('message', e => { if(e.data?.event === 'action') libraryActions++; }); parent.postMessage({magpie:1,id:'hello',method:'hello'}, '*');</script>` }));
+      await page.goto("http://enterprise.invalid/?view=plugins");
+      const tab = page.locator(`#nav button[data-view="${key}"]`);
+      await tab.waitFor({ state: "attached" });
+      assert.equal(await tab.isVisible(), false);
+      await page.evaluate(key => show(key), key);
+      assert.equal(await page.evaluate(() => view), "providers", "a direct plugin-page link cannot reopen Library");
+      assert.equal(await page.locator(`#view-${key} iframe`).count(), 0);
+      assert.equal(await page.evaluate(() => magpie.actions("provider", {}).length), 0);
+      const enabled = { ...f.get(), effective: { ...f.get().effective, libraryEnabled: true }, revision: "library-on" };
+      f.set(enabled);
+      await page.evaluate(next => window.receiveEnterprise(next), enabled);
+      assert.equal(await tab.isVisible(), true);
+      await page.evaluate(() => show("library"));
+      assert.equal(await page.evaluate(() => view), key, "enabled Library still uses main's replacement-page routing");
+      await page.evaluate(() => { window.staleLibraryAction = magpie.actions("provider", {})[0]; });
+      const disabled = { ...enabled, effective: { ...enabled.effective, libraryEnabled: false }, revision: "library-off" };
+      f.set(disabled);
+      await page.evaluate(next => window.receiveEnterprise(next), disabled);
+      await page.waitForFunction(() => view === "providers");
+      assert.equal(await tab.isVisible(), false);
+      assert.equal(await page.evaluate(() => magpie.actions("provider", {}).length), 0);
+      await page.evaluate(() => window.staleLibraryAction.run());
+      const frame = page.frames().find(frame => frame.url().includes("fixture-library.html"));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const actions = await frame.evaluate(() => libraryActions);
+      assert.equal(actions, 0, "an already captured menu action cannot run after Library closes");
+      assert.deepEqual(f.errors, []);
+    });
+  });
+
   test(`${engineName}: built-in plugins respect both enterprise policy and feature switches`, async () => {
     const browser = await engine.launch();
     try {
@@ -80,6 +123,7 @@ for (const [engineName, engine] of [["chromium", chromium], ["webkit", webkit]])
       await page.route("**/*", f.serve);
       await page.goto("http://enterprise.invalid/?view=plugins");
       await page.locator(".pm-manual .pm-minput").waitFor();
+      assert.equal(await page.locator('#view-plugins .opt[data-sub="installed"]').count(), 1);
       await page.getByRole("tab", { name: "Built-in", exact: true }).click();
       await page.locator("#builtinList").waitFor({ state: "attached" });
       assert.equal(await page.locator("#view-plugins .pm-find").isVisible(), false);

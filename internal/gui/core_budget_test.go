@@ -15,10 +15,8 @@ import (
 // so a page can't quietly grow back into the core; a change that needs more
 // raises them and says why in its commit.
 const (
-	appScriptBudget = 1_235_000 // app.js: 1,198,239 after Usage left (P2); 1,218,098 with the 10-15 fixes to pages still in the core
-	// Enterprise branding/policy and ZIP management remain available with every
-	// optional built-in page off. The merged core is 1,484,207 bytes; allow 1.7%.
-	coreScriptBudget = 1_510_000
+	appScriptBudget  = 1_269_000 // app.js: 1,198,239 after Usage left (P2); 1,218,098 with the 10-15 fixes to pages still in the core; 1,232,466 with the provider editor's Advanced fold and every dialog holding its place, the core's own (10-16); 1,250,533 with the quota refresh kept through redraws, the core's own since the tray panel draws it too, plus 1.5% (#2397)
+	coreScriptBudget = 1_562_000 // main's core plus enterprise policy, branding, theme icons and ZIP installer: 1,538,363 bytes after the 10-18 sync, plus about 1.5%; public pages still belong in plugins
 )
 
 func TestCoreScriptBudget(t *testing.T) {

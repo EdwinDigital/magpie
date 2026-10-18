@@ -1,6 +1,8 @@
 package sessions
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/yetone/magpie/internal/settings"
@@ -8,6 +10,17 @@ import (
 
 func TestEnterpriseSessionDiscoverySkipsHiddenStoresBeforeReading(t *testing.T) {
 	setup(t)
+	t.Setenv("CODEBUDDY_CONFIG_DIR", filepath.Join(t.TempDir(), "codebuddy"))
+	buddy := filepath.Join(CodeBuddyDir(), "projects", "fixture", "session.jsonl")
+	if err := os.MkdirAll(filepath.Dir(buddy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(buddy, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if len(codebuddyFiles()) == 0 {
+		t.Fatal("fixture contains no CodeBuddy native store")
+	}
 	if len(ccFiles("claude", ClaudeDir())) == 0 || len(codexFiles()) == 0 {
 		t.Fatal("session fixture contains no native stores")
 	}

@@ -138,6 +138,39 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
 }
 
 for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"]) {
+  test(engine + ": a late plugin dialog close cannot steal enterprise form focus", async t => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch());
+    t.after(() => browser.close());
+    const context = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+    const page = await context.newPage(), ctl = fixture("en", "light");
+    ctl.host = "zip.fixture";
+    page.on("pageerror", e => ctl.errors.push(e.message));
+    await page.route("**/*", ctl.serve);
+    await page.goto("http://zip.fixture/?view=plugins");
+    await page.locator(".pm-manual").waitFor();
+    await page.evaluate(async () => {
+      document.querySelector("#view-plugins").focus({ preventScroll: true });
+      const content = document.createElement("div");
+      content.append(document.createElement("button"));
+      openModal(content);
+      window.heldModalClose = closeModal();
+      const m = document.querySelector("#modal");
+      window.heldCloseAnimations = [...m.getAnimations(), ...m.firstElementChild.getAnimations()];
+      heldCloseAnimations.forEach(a => a.pause());
+      await enterpriseUI.configureProviders([]);
+      document.querySelector("#enterprise-appName").focus({ preventScroll: true });
+    });
+    const input = page.locator("#enterprise-appName");
+    assert.equal(await input.evaluate(e => document.activeElement === e), true);
+    await page.evaluate(async () => {
+      heldCloseAnimations.forEach(a => a.finish());
+      await heldModalClose;
+    });
+    assert.equal(await page.locator("#modal").evaluate(e => e.hidden), true, "the held close actually completed");
+    assert.equal(await input.evaluate(e => document.activeElement === e), true, "the completed close keeps the reader's new focus");
+    assert.deepEqual(ctl.errors, []);
+  });
+
   test(engine + ": ZIP friendly names and explicit supplier selection reach model configuration", async t => {
     const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch());
     t.after(() => browser.close());

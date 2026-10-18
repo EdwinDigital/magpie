@@ -62,6 +62,13 @@ test("main's plugin pages and tray guidance retain the enterprise display brand"
       "The model Magpie Image draws with. Agents get the Magpie Image tool from the Library, which is turned off in Plugins › Built-in; images are saved in their project",
       "Show your subscriptions' allowances, or the tokens and cost of today or the last 7 days, beside magpie's icon in the menu bar, side by side, refreshed every few minutes",
       "None of magpie's models is left in {agent}'s model list: pick one, then connect {agent}",
+      "Uses only GitHub Copilot's own models, so magpie can't connect it",
+      "Adds panels to magpie's own pages. They run shut off from the rest of magpie and can read only what its row lists",
+      "Takes the place of the {page} page, and reads nothing of magpie's",
+      "Plugins extend magpie",
+      "Gives every agent tools of its own, through magpie's MCP server",
+      "OpenPencil reads its settings when it starts and writes them all back when it quits — quit OpenPencil before changing this, then open it and pick a magpie model in its chat's model picker.",
+      "magpie keeps the request and response of only the last 40 requests, until it quits. To keep every request's, turn on Request archive at the top of Usage › Requests.",
     ]) {
       const text = vm.runInContext(`t(${JSON.stringify(key)}, { agent: "Codex" })`, context);
       assert.equal(/magpie/i.test(text), false, lang + ": " + text);
